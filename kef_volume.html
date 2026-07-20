@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KEF LS50W (Volume)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#0c0c0e;--surface:#141417;--border:#2a2a30;--accent:#e8c97a;
+    --text:#e8e4dc;--muted:#5a5a65;--red:#c0392b;--green:#2ecc71;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;overflow:hidden}
+  body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(
+    0deg,transparent,transparent 2px,rgba(255,255,255,0.012) 2px,rgba(255,255,255,0.012) 4px);
+    pointer-events:none;z-index:0}
+  .card{position:relative;z-index:1;background:var(--surface);border:1px solid var(--border);
+    width:min(420px,92vw);padding:48px 44px 40px}
+  .brand{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:0.35em;
+    color:var(--muted);margin-bottom:6px}
+  .model{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:0.08em;
+    color:var(--text);line-height:1;margin-bottom:40px}
+  .model span{color:var(--accent)}
+  .vol-wrap{display:flex;align-items:baseline;gap:10px;margin-bottom:16px}
+  .vol-number{font-family:'Bebas Neue',sans-serif;font-size:clamp(80px,22vw,120px);
+    line-height:1;color:var(--accent);letter-spacing:-0.02em;transition:color 0.3s}
+  .vol-number.muted{color:var(--muted)}
+  .vol-unit{font-size:13px;color:var(--muted);letter-spacing:0.15em;padding-bottom:14px}
+  .bar-track{height:3px;background:var(--border);width:100%;margin-bottom:28px}
+  .bar-fill{height:100%;background:var(--accent);width:0%;
+    transition:width 0.4s cubic-bezier(0.22,1,0.36,1)}
+  .bar-fill.muted{background:var(--muted)}
+  .slider-wrap{display:flex;align-items:center;gap:12px;margin-bottom:28px}
+  .vol-btn{background:none;border:1px solid var(--border);color:var(--muted);
+    font-family:'DM Mono',monospace;font-size:18px;width:36px;height:36px;
+    cursor:pointer;border-radius:4px;transition:border-color 0.2s,color 0.2s;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .vol-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .vol-btn:active{background:var(--border)}
+  input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:3px;
+    background:var(--border);outline:none;cursor:pointer;border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:16px;height:16px;border-radius:50%;background:var(--accent);cursor:pointer;
+    transition:transform 0.15s}
+  input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.3)}
+  input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;
+    background:var(--accent);cursor:pointer;border:none}
+  .meta{display:flex;justify-content:space-between;align-items:center;font-size:11px;
+    letter-spacing:0.12em;color:var(--muted);border-top:1px solid var(--border);padding-top:20px}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);
+    margin-right:8px;transition:background 0.3s}
+  .dot.online{background:var(--green);box-shadow:0 0 6px var(--green)}
+  .dot.offline{background:var(--red);box-shadow:0 0 6px var(--red)}
+  .dot.loading{animation:pulse 1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+  .mute-badge{display:none;font-size:10px;letter-spacing:0.18em;background:var(--border);
+    color:var(--muted);padding:3px 8px;border-radius:2px}
+  .mute-badge.visible{display:inline-block}
+  .refresh-btn{background:none;border:1px solid var(--border);color:var(--muted);
+    font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.15em;padding:5px 12px;
+    cursor:pointer;border-radius:4px;transition:border-color 0.2s,color 0.2s}
+  .refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .last-updated{font-size:10px;color:var(--muted);margin-top:14px;letter-spacing:0.08em;min-height:14px}
+  .error-msg{display:none;margin-top:20px;padding:12px 16px;border:1px solid #3a1a1a;
+    background:#1e0d0d;color:#e07070;font-size:11px;line-height:1.6;border-radius:4px}
+  .error-msg.visible{display:block}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">KEF SPEAKERS</div>
+  <div class="model">LS50 <span>Wireless</span></div>
+  <div class="vol-wrap">
+    <div class="vol-number" id="volNum">--</div>
+    <div class="vol-unit">VOL</div>
+  </div>
+  <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
+  <div class="slider-wrap">
+    <button class="vol-btn" onclick="stepVolume(-1)">−</button>
+    <input type="range" id="slider" min="0" max="100" value="0">
+    <button class="vol-btn" onclick="stepVolume(+1)">+</button>
+  </div>
+  <div class="meta">
+    <div><span class="dot loading" id="dot"></span><span id="statusText">CONNECTING…</span></div>
+    <div>
+      <span class="mute-badge" id="muteBadge">MUTED</span>
+      <button class="refresh-btn" onclick="fetchVolume()">↺ REFRESH</button>
+    </div>
+  </div>
+  <div class="last-updated" id="lastUpdated"></div>
+  <div class="error-msg" id="errorMsg"></div>
+</div>
+<script>
+  const SERVER = "http://<server-ip>:8765";
+  const AUTO_REFRESH_MS = 3000;
+
+  const volNum=document.getElementById("volNum");
+  const barFill=document.getElementById("barFill");
+  const dot=document.getElementById("dot");
+  const statusTxt=document.getElementById("statusText");
+  const muteBadge=document.getElementById("muteBadge");
+  const lastUpd=document.getElementById("lastUpdated");
+  const errorMsg=document.getElementById("errorMsg");
+  const slider=document.getElementById("slider");
+
+  let dragging=false;
+  slider.addEventListener("mousedown",()=>dragging=true);
+  slider.addEventListener("touchstart",()=>dragging=true);
+  slider.addEventListener("mouseup",()=>{dragging=false;setVolume(parseInt(slider.value));});
+  slider.addEventListener("touchend",()=>{dragging=false;setVolume(parseInt(slider.value));});
+
+  function setOnline(online){
+    dot.className="dot "+(online?"online":"offline");
+    statusTxt.textContent=online?"ONLINE":"OFFLINE";
+  }
+
+  function updateUI(vol100,muted){
+    volNum.textContent=vol100;
+    barFill.style.width=vol100+"%";
+    if(!dragging) slider.value=vol100;
+    if(muted){
+      volNum.classList.add("muted");
+      barFill.classList.add("muted");
+      muteBadge.classList.add("visible");
+    } else {
+      volNum.classList.remove("muted");
+      barFill.classList.remove("muted");
+      muteBadge.classList.remove("visible");
+    }
+  }
+
+  async function fetchVolume(){
+    errorMsg.classList.remove("visible");
+    try{
+      const res=await fetch(`${SERVER}/volume`,{signal:AbortSignal.timeout(15000)});
+      const data=await res.json();
+      if(!data.online){
+        setOnline(false);
+        errorMsg.textContent="Speakers offline. "+(data.error||"");
+        errorMsg.classList.add("visible");
+        return;
+      }
+      setOnline(true);
+      updateUI(Math.round(data.volume*100),data.muted);
+      lastUpd.textContent="Last updated: "+new Date().toLocaleTimeString();
+    } catch(err){
+      setOnline(false);
+      errorMsg.textContent="Cannot reach server. ("+err.message+")";
+      errorMsg.classList.add("visible");
+    }
+  }
+
+  async function setVolume(vol){
+    vol=Math.max(0,Math.min(100,vol));
+    updateUI(vol,volNum.classList.contains("muted"));
+    try{
+      await fetch(`${SERVER}/volume/set`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({volume:vol}),
+        signal:AbortSignal.timeout(15000)
+      });
+    } catch(err){
+      errorMsg.textContent="Failed to set volume. ("+err.message+")";
+      errorMsg.classList.add("visible");
+    }
+  }
+
+  function stepVolume(delta){
+    const current=parseInt(volNum.textContent)||0;
+    setVolume(current+delta);
+  }
+
+  fetchVolume();
+  setInterval(fetchVolume,AUTO_REFRESH_MS);
+</script>
+</body>
+</html>
