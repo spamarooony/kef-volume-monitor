@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 import argparse
 import logging
+import os
 import socket
 import threading
 import time
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 
-DEFAULT_SPEAKER_IP = "<speaker-ip>"
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_SPEAKER_IP = "<server-ip>"  # placeholder - override with --ip
 SPEAKER_PORT = 50001
 SERVER_PORT = 8765
 POLL_INTERVAL = 3
@@ -70,7 +72,7 @@ def poll_loop():
 
 @app.route("/")
 def index():
-    return send_from_directory("/home/user/kef-volume", "kef_volume.html")
+    return send_from_directory(APP_DIR, "kef_volume.html")
 
 @app.route("/volume")
 def get_volume():

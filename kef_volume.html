@@ -95,7 +95,8 @@
   <div class="error-msg" id="errorMsg"></div>
 </div>
 <script>
-  const SERVER = "http://<server-ip>:8765";
+  // Page is served by the same Flask app it talks to, so relative paths
+  // work regardless of hostname/IP - no need to hardcode the server address.
   const AUTO_REFRESH_MS = 3000;
 
   const volNum=document.getElementById("volNum");
@@ -135,7 +136,7 @@
 
   async function fetchVolume(){
     try{
-      const res=await fetch(`${SERVER}/volume`,{signal:AbortSignal.timeout(15000)});
+      const res=await fetch(`/volume`,{signal:AbortSignal.timeout(15000)});
       const data=await res.json();
       if(!data.online){
         setOnline(false);
@@ -158,7 +159,7 @@
     vol=Math.max(0,Math.min(100,vol));
     updateUI(vol,volNum.classList.contains("muted"));
     try{
-      await fetch(`${SERVER}/volume/set`,{
+      await fetch(`/volume/set`,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({volume:vol}),

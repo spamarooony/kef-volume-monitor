@@ -43,9 +43,9 @@ The Ubuntu server runs this repo as a git clone (pulled read-only via a deploy k
 
 ```bash
 git commit -am "..." && git push
-ssh user@<server-ip> "cd /home/user/kef-volume && git pull"
+ssh <user>@<server-ip> "cd /path/to/kef-volume && git pull"
 # restart the service only if kef_server.py changed:
-ssh user@<server-ip> "sudo systemctl restart kef-server.service"
+ssh <user>@<server-ip> "sudo systemctl restart kef-server.service"
 ```
 
 ## Key Problems Solved Along the Way
