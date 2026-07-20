@@ -134,7 +134,6 @@
   }
 
   async function fetchVolume(){
-    errorMsg.classList.remove("visible");
     try{
       const res=await fetch(`${SERVER}/volume`,{signal:AbortSignal.timeout(15000)});
       const data=await res.json();
@@ -145,6 +144,7 @@
         return;
       }
       setOnline(true);
+      errorMsg.classList.remove("visible");
       updateUI(Math.round(data.volume*100),data.muted);
       lastUpd.textContent="Last updated: "+new Date().toLocaleTimeString();
     } catch(err){
