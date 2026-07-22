@@ -9,7 +9,7 @@
 <style>
   :root {
     --bg:#0c0c0e;--surface:#141417;--border:#2a2a30;--accent:#5b82e0;
-    --text:#e8e4dc;--muted:#5a5a65;--red:#c0392b;--green:#2ecc71;--danger-zone:#7a2e3d;
+    --text:#e8e4dc;--muted:#82838f;--red:#c0392b;--green:#2ecc71;--danger-zone:#7a2e3d;
     --safe-pct:45%; /* must match SAFE_MAX in the script below */
   }
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -40,12 +40,15 @@
   .vol-btn:hover{border-color:var(--accent);color:var(--accent)}
   .vol-btn:active{background:var(--border)}
   .vol-btn:disabled{opacity:0.35;cursor:not-allowed;border-color:var(--border);color:var(--muted)}
+  .vol-btn:focus-visible,.refresh-btn:focus-visible,.safety-toggle input[type=checkbox]:focus-visible{
+    outline:2px solid var(--accent);outline-offset:2px}
   .slider-track{position:relative;flex:1;height:8px;border-radius:4px;overflow:visible;
     background:linear-gradient(to right,var(--border) 0%,var(--border) var(--safe-pct),var(--danger-zone) var(--safe-pct),var(--danger-zone) 100%)}
   input[type=range]{-webkit-appearance:none;appearance:none;position:absolute;left:0;top:0;
     height:8px;width:var(--safe-pct);outline:none;cursor:pointer;border-radius:4px;
     background:transparent;transition:opacity 0.3s}
   input[type=range]:disabled{opacity:0.35;cursor:not-allowed}
+  input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
   input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;box-sizing:border-box;
     width:24px;height:24px;border-radius:50%;background:var(--accent);cursor:pointer;
     border:3px solid var(--surface);box-shadow:0 0 0 1px var(--border);transition:transform 0.15s}
@@ -93,11 +96,12 @@
     <div class="vol-unit">VOL</div>
   </div>
   <div class="slider-wrap">
-    <button class="vol-btn" id="btnDown" onclick="stepVolume(-1)" disabled>−</button>
+    <button class="vol-btn" id="btnDown" onclick="stepVolume(-1)" disabled aria-label="Decrease volume">−</button>
     <div class="slider-track" id="sliderTrack">
-      <input type="range" id="slider" min="0" max="45" value="0" disabled>
+      <input type="range" id="slider" min="0" max="45" value="0" disabled
+        aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0%">
     </div>
-    <button class="vol-btn" id="btnUp" onclick="stepVolume(+1)" disabled>+</button>
+    <button class="vol-btn" id="btnUp" onclick="stepVolume(+1)" disabled aria-label="Increase volume">+</button>
   </div>
   <label class="safety-toggle" for="unlockCheckbox">
     <input type="checkbox" id="unlockCheckbox">
@@ -111,7 +115,7 @@
     </div>
   </div>
   <div class="last-updated" id="lastUpdated"></div>
-  <div class="error-msg" id="errorMsg"></div>
+  <div class="error-msg" id="errorMsg" role="alert"></div>
 </div>
 <script>
   // Page is served by the same Flask app it talks to, so relative paths
@@ -169,15 +173,24 @@
 
   slider.addEventListener("mousedown",()=>{dragging=true;committing=true;});
   slider.addEventListener("touchstart",()=>{dragging=true;committing=true;});
+  // input fires for drag AND keyboard arrow presses alike - always safe to live-update here,
+  // since it only ever comes from genuine user interaction, never from our own updateUI() calls
+  // (programmatic .value assignment doesn't trigger input/change).
   slider.addEventListener("input",()=>{
-    if(!dragging) return;
     updateUI(parseInt(slider.value),volNum.classList.contains("muted"));
+  });
+  // change fires once per discrete keyboard step, and once on drag release - both funnel into
+  // scheduleCommit (shared with the +/- buttons below), which is idempotent for a repeated same
+  // value. That sidesteps needing to know whether this or the window mouseup/touchend below fires
+  // first for a drag release - whichever runs first "wins" and the other is a harmless no-op.
+  slider.addEventListener("change",()=>{
+    scheduleCommit(parseInt(slider.value));
   });
   // mouseup/touchend are bound on window, not the slider itself - a drag can easily end with
   // the pointer off the (thin) track, and a slider-scoped listener would then never fire,
   // leaving `dragging` stuck true forever and the thumb permanently frozen against updates.
-  window.addEventListener("mouseup",()=>{if(dragging){dragging=false;queueSetVolume(parseInt(slider.value));}});
-  window.addEventListener("touchend",()=>{if(dragging){dragging=false;queueSetVolume(parseInt(slider.value));}});
+  window.addEventListener("mouseup",()=>{if(dragging){dragging=false;scheduleCommit(parseInt(slider.value));}});
+  window.addEventListener("touchend",()=>{if(dragging){dragging=false;scheduleCommit(parseInt(slider.value));}});
 
   function setOnline(online){
     isOnline=online;
@@ -202,6 +215,11 @@
     volNum.textContent=vol100;
     if(!dragging) slider.value=vol100;
     slider.style.background=sliderGradient(vol100,muted);
+    // aria-value* stay pinned to the true 0-100 scale regardless of the native min/max, which
+    // get resized by applyMaxVol() for drag-blocking - without this a screen reader would announce
+    // e.g. "32, maximum 45" instead of the real 32%.
+    slider.setAttribute("aria-valuenow",vol100);
+    slider.setAttribute("aria-valuetext",vol100+(muted?"% (muted)":"%"));
     volNum.classList.toggle("stale",stale);
     if(muted){
       volNum.classList.add("muted");
@@ -270,13 +288,12 @@
   let stepTimer=null;
   let stepPending=null;
 
-  function stepVolume(delta){
-    if(!isOnline) return;
-    const base=stepPending!==null?stepPending:(parseInt(volNum.textContent)||0);
-    const next=Math.max(0,Math.min(maxVol,base+delta));
-    stepPending=next;
+  // Shared by the +/- buttons, keyboard arrow presses, and slider drag release: debounces rapid
+  // repeated commits (e.g. holding an arrow key, or clicking + quickly) into a single trailing
+  // request, so the speaker's fragile control port never sees a flood of near-simultaneous connects.
+  function scheduleCommit(vol){
+    stepPending=vol;
     committing=true;
-    updateUI(next,volNum.classList.contains("muted"));
     clearTimeout(stepTimer);
     stepTimer=setTimeout(()=>{
       const v=stepPending;
@@ -284,6 +301,28 @@
       queueSetVolume(v);
     },STEP_DEBOUNCE_MS);
   }
+
+  function stepVolume(delta){
+    if(!isOnline) return;
+    const base=stepPending!==null?stepPending:(parseInt(volNum.textContent)||0);
+    const next=Math.max(0,Math.min(maxVol,base+delta));
+    updateUI(next,volNum.classList.contains("muted"));
+    scheduleCommit(next);
+  }
+
+  // Arrow keys work anywhere on the page, not just while the slider has focus - if the slider
+  // IS focused, its own native keyboard handling (wired above) already covers this, so bail out
+  // here to avoid double-stepping the same keypress.
+  document.addEventListener("keydown",(e)=>{
+    if(document.activeElement===slider) return;
+    if(e.key==="ArrowRight"||e.key==="ArrowUp"){
+      e.preventDefault();
+      stepVolume(1);
+    } else if(e.key==="ArrowLeft"||e.key==="ArrowDown"){
+      e.preventDefault();
+      stepVolume(-1);
+    }
+  });
 
   fetchVolume();
   setInterval(fetchVolume,AUTO_REFRESH_MS);
