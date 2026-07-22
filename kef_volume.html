@@ -39,7 +39,9 @@
     display:flex;align-items:center;justify-content:center;flex-shrink:0}
   .vol-btn:hover{border-color:var(--accent);color:var(--accent)}
   .vol-btn:active{background:var(--border)}
-  .vol-btn:disabled{opacity:0.35;cursor:not-allowed;border-color:var(--border);color:var(--muted)}
+  .vol-btn:disabled,input[type=range]:disabled,.safety-toggle input[type=checkbox]:disabled{
+    opacity:0.35;cursor:not-allowed}
+  .vol-btn:disabled{border-color:var(--border);color:var(--muted)}
   .vol-btn:focus-visible,.refresh-btn:focus-visible,.safety-toggle input[type=checkbox]:focus-visible{
     outline:2px solid var(--accent);outline-offset:2px}
   .slider-track{position:relative;flex:1;height:8px;border-radius:4px;overflow:visible;
@@ -47,7 +49,6 @@
   input[type=range]{-webkit-appearance:none;appearance:none;position:absolute;left:0;top:0;
     height:8px;width:var(--safe-pct);outline:none;cursor:pointer;border-radius:4px;
     background:transparent;transition:opacity 0.3s}
-  input[type=range]:disabled{opacity:0.35;cursor:not-allowed}
   input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
   input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;box-sizing:border-box;
     width:24px;height:24px;border-radius:50%;background:var(--accent);cursor:pointer;
@@ -73,10 +74,12 @@
   .refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
   .safety-toggle{display:flex;align-items:center;gap:8px;font-size:10px;letter-spacing:0.1em;
     color:var(--muted);margin-bottom:24px;cursor:pointer;user-select:none}
+  .safety-toggle:has(input:disabled){cursor:not-allowed}
   .safety-toggle input[type=checkbox]{-webkit-appearance:none;appearance:none;position:relative;
     flex-shrink:0;width:14px;height:14px;border:1px solid var(--border);border-radius:3px;
     background:var(--bg);cursor:pointer;transition:border-color 0.2s,background 0.2s}
   .safety-toggle:hover input[type=checkbox]{border-color:var(--accent)}
+  .safety-toggle input[type=checkbox]:disabled{border-color:var(--border)}
   .safety-toggle input[type=checkbox]:checked{background:var(--accent);border-color:var(--accent)}
   .safety-toggle input[type=checkbox]:checked::after{content:'';position:absolute;
     left:4px;top:1px;width:4px;height:8px;border:solid var(--bg);border-width:0 2px 2px 0;
@@ -104,7 +107,7 @@
     <button class="vol-btn" id="btnUp" onclick="stepVolume(+1)" disabled aria-label="Increase volume">+</button>
   </div>
   <label class="safety-toggle" for="unlockCheckbox">
-    <input type="checkbox" id="unlockCheckbox">
+    <input type="checkbox" id="unlockCheckbox" disabled>
     <span>UNLOCK FULL RANGE (UP TO 100)</span>
   </label>
   <div class="meta">
@@ -165,6 +168,7 @@
     if(!unlockCheckbox.checked && current>SAFE_MAX){
       clearTimeout(stepTimer);
       stepPending=null;
+      updateUI(SAFE_MAX,volNum.classList.contains("muted")); // match the display to the newly-shrunk track immediately, don't wait for the queued commit to resolve (it may never send, e.g. if offline)
       queueSetVolume(SAFE_MAX);
     } else {
       updateUI(current,volNum.classList.contains("muted")); // refresh the fill gradient against the new maxVol immediately, don't wait for the next poll
@@ -186,11 +190,14 @@
   slider.addEventListener("change",()=>{
     scheduleCommit(parseInt(slider.value));
   });
-  // mouseup/touchend are bound on window, not the slider itself - a drag can easily end with
-  // the pointer off the (thin) track, and a slider-scoped listener would then never fire,
+  // mouseup/touchend/touchcancel are bound on window, not the slider itself - a drag can easily end
+  // with the pointer off the (thin) track, and a slider-scoped listener would then never fire,
   // leaving `dragging` stuck true forever and the thumb permanently frozen against updates.
+  // touchcancel (the OS interrupting a touch gesture mid-drag) must be handled the same way touchend
+  // is, or the same stuck-forever bug reappears via a path that never fires touchend at all.
   window.addEventListener("mouseup",()=>{if(dragging){dragging=false;scheduleCommit(parseInt(slider.value));}});
   window.addEventListener("touchend",()=>{if(dragging){dragging=false;scheduleCommit(parseInt(slider.value));}});
+  window.addEventListener("touchcancel",()=>{if(dragging){dragging=false;scheduleCommit(parseInt(slider.value));}});
 
   function setOnline(online){
     isOnline=online;
@@ -199,6 +206,7 @@
     slider.disabled=!online;
     btnDown.disabled=!online;
     btnUp.disabled=!online;
+    unlockCheckbox.disabled=!online;
   }
 
   function sliderGradient(vol100,muted){
@@ -253,11 +261,18 @@
   }
 
   async function setVolume(vol){
-    if(!isOnline) return;
-    vol=Math.max(0,Math.min(maxVol,vol));
-    committing=true;
-    updateUI(vol,volNum.classList.contains("muted"));
+    // committing is reset exactly once, here, regardless of which branch below is taken -
+    // no other line in this function may set it back to false.
     try{
+      if(!isOnline){
+        errorMsg.textContent="Speaker went offline, change not sent.";
+        errorMsg.classList.add("visible");
+        await fetchVolume(true);
+        return;
+      }
+      vol=Math.max(0,Math.min(maxVol,vol));
+      committing=true;
+      updateUI(vol,volNum.classList.contains("muted"));
       const res=await fetch(`/volume/set`,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
