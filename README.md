@@ -62,6 +62,14 @@ ssh <user>@<server-ip> "sudo systemctl restart kef-server.service"
 | Speakers occasionally refuse connections while the KEF Control app is in use | The speaker's embedded TCP stack can only handle a small number of simultaneous connections on port 50001 ([confirmed in `aiokef` issue tracker](https://github.com/basnijholt/aiokef/issues/15)) | Poll loop keeps connections brief (connect → read → close) and self-heals on the next 3s cycle if a connection is refused, no manual intervention needed, dashboard just misses one update |
 | journald filling with routine request logs | Flask/Werkzeug logs every single `GET`/`POST` by default | Silenced Werkzeug's access logger; app now only logs actual online↔offline transitions |
 
+## Known Limitations
+
+**Speakers cannot be turned on remotely over the network on early units.** This is a hardware/firmware limitation of early-production LS50 Wireless pairs, not a bug in this project or the underlying `aiokef` protocol. Confirmed directly: every port that responds while the speakers are on (control port 50001, embedded web UI on 80, UPnP on 8080/1900) becomes completely unreachable (`no route to host`) the moment they're switched off, rather than staying in a low-power listening state, so there's no command, from this dashboard or otherwise, that can reach a fully powered-down unit. Waking them requires physically pressing the power button.
+
+According to KEF's own [firmware release notes](https://assets.kef.com/pdf_doc/ls50w/LS50-Wireless-Firmware-Release-Note.pdf), wake-up via the KEF Control app, Spotify Connect, and DLNA/network is only supported on units with a serial number **at or after `LS50W13074K24L/R2G`**. To check your own pair: compare the digits in your speakers' serial number (printed on the back, format `LS50Wnnnnn...`) against that threshold. Earlier serials lack network wake-up entirely; later ones support it.
+
+As a result, the dashboard can only ever report "offline" (last known volume shown dimmed, controls disabled) while an affected pair is off. It has no way to bring them back online itself.
+
 ## Final Result
 - A live, auto-refreshing volume readout accessible from any device on the home network at `http://<server-ip>:8765`
 - Slider and +/− buttons to adjust volume directly from the page, applied to the speaker immediately
