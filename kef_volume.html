@@ -51,11 +51,14 @@
     background:transparent;transition:opacity 0.3s}
   input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
   input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;box-sizing:border-box;
-    width:24px;height:24px;border-radius:50%;background:var(--accent);cursor:pointer;
+    width:24px;height:24px;border-radius:50%;background:rgba(91,130,224,0.28);cursor:pointer;
+    backdrop-filter:blur(6px) saturate(160%) brightness(225%);-webkit-backdrop-filter:blur(6px) saturate(160%) brightness(225%);
     border:3px solid var(--surface);box-shadow:0 0 0 1px var(--border);transition:transform 0.15s}
   input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2)}
   input[type=range]::-moz-range-thumb{box-sizing:border-box;width:24px;height:24px;border-radius:50%;
-    background:var(--accent);cursor:pointer;border:3px solid var(--surface);box-shadow:0 0 0 1px var(--border)}
+    background:rgba(91,130,224,0.28);cursor:pointer;
+    backdrop-filter:blur(6px) saturate(160%) brightness(225%);-webkit-backdrop-filter:blur(6px) saturate(160%) brightness(225%);
+    border:3px solid var(--surface);box-shadow:0 0 0 1px var(--border)}
   input[type=range]::-moz-range-track{background:transparent}
   .meta{display:flex;justify-content:space-between;align-items:center;font-size:11px;
     letter-spacing:0.12em;color:var(--muted);border-top:1px solid var(--border);padding-top:20px}
@@ -210,13 +213,24 @@
   }
 
   function sliderGradient(vol100,muted){
-    // The safe/danger boundary is drawn once by .slider-track's own static background and
-    // never moves. This only needs to paint the fill (0 to current value) and stay transparent
-    // everywhere else, so the track's boundary line always shows through underneath unchanged.
+    // The danger-zone backdrop is drawn once by .slider-track's own static background and never
+    // moves. The fill just needs to (a) go transparent past the current value, so that backdrop
+    // shows through unchanged ahead of the thumb, and (b) switch from blue to red once the fill
+    // itself has crossed SAFE_MAX, so already-filled track reflects "you're in the danger zone"
+    // instead of staying blue right up to the thumb.
     const v=Math.max(0,Math.min(maxVol,vol100));
-    const fill=muted?"var(--muted)":"var(--accent)";
-    const pct=maxVol>0?(v/maxVol*100):0;
-    return `linear-gradient(to right,${fill} 0%,${fill} ${pct}%,transparent ${pct}%,transparent 100%)`;
+    const boxWidth=slider.offsetWidth;
+    // Same inset-corrected mapping the native thumb uses (see applyMaxVol) - maxVol cancels out
+    // of this formula, which is why a given value always lands at the same pixel position on the
+    // track regardless of lock state. Reusing it for SAFE_MAX below keeps the color switch-point
+    // exactly aligned with the static backdrop's boundary instead of drifting near the edges.
+    const toPct=val=>(maxVol>0&&boxWidth>THUMB_PX)?((THUMB_PX/2+(val/maxVol)*(boxWidth-THUMB_PX))/boxWidth*100):0;
+    const pct=toPct(v);
+    const safePct=Math.min(pct,toPct(Math.min(SAFE_MAX,maxVol)));
+    const safeColor=muted?"var(--muted)":"var(--accent)";
+    const dangerColor=muted?"var(--muted)":"var(--red)";
+    return `linear-gradient(to right,${safeColor} 0%,${safeColor} ${safePct}%,`+
+      `${dangerColor} ${safePct}%,${dangerColor} ${pct}%,transparent ${pct}%,transparent 100%)`;
   }
 
   function updateUI(vol100,muted,stale=false){
