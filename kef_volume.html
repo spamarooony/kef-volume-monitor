@@ -29,6 +29,7 @@
   .vol-number{font-family:'Bebas Neue',sans-serif;font-size:clamp(80px,22vw,120px);
     line-height:1;color:var(--accent);letter-spacing:-0.02em;transition:color 0.3s}
   .vol-number.muted{color:var(--muted)}
+  .vol-number.stale,.bar-fill.stale{opacity:0.4}
   .vol-unit{font-size:13px;color:var(--muted);letter-spacing:0.15em;padding-bottom:14px}
   .bar-track{height:3px;background:var(--border);width:100%;margin-bottom:28px}
   .bar-fill{height:100%;background:var(--accent);width:0%;
@@ -41,8 +42,10 @@
     display:flex;align-items:center;justify-content:center;flex-shrink:0}
   .vol-btn:hover{border-color:var(--accent);color:var(--accent)}
   .vol-btn:active{background:var(--border)}
+  .vol-btn:disabled{opacity:0.35;cursor:not-allowed;border-color:var(--border);color:var(--muted)}
   input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:3px;
     background:var(--border);outline:none;cursor:pointer;border-radius:2px}
+  input[type=range]:disabled{opacity:0.35;cursor:not-allowed}
   input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
     width:16px;height:16px;border-radius:50%;background:var(--accent);cursor:pointer;
     transition:transform 0.15s}
@@ -80,9 +83,9 @@
   </div>
   <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
   <div class="slider-wrap">
-    <button class="vol-btn" onclick="stepVolume(-1)">−</button>
-    <input type="range" id="slider" min="0" max="100" value="0">
-    <button class="vol-btn" onclick="stepVolume(+1)">+</button>
+    <button class="vol-btn" id="btnDown" onclick="stepVolume(-1)" disabled>−</button>
+    <input type="range" id="slider" min="0" max="100" value="0" disabled>
+    <button class="vol-btn" id="btnUp" onclick="stepVolume(+1)" disabled>+</button>
   </div>
   <div class="meta">
     <div><span class="dot loading" id="dot"></span><span id="statusText">CONNECTING…</span></div>
@@ -107,22 +110,31 @@
   const lastUpd=document.getElementById("lastUpdated");
   const errorMsg=document.getElementById("errorMsg");
   const slider=document.getElementById("slider");
+  const btnDown=document.getElementById("btnDown");
+  const btnUp=document.getElementById("btnUp");
 
   let dragging=false;
+  let isOnline=false;
   slider.addEventListener("mousedown",()=>dragging=true);
   slider.addEventListener("touchstart",()=>dragging=true);
   slider.addEventListener("mouseup",()=>{dragging=false;setVolume(parseInt(slider.value));});
   slider.addEventListener("touchend",()=>{dragging=false;setVolume(parseInt(slider.value));});
 
   function setOnline(online){
+    isOnline=online;
     dot.className="dot "+(online?"online":"offline");
     statusTxt.textContent=online?"ONLINE":"OFFLINE";
+    slider.disabled=!online;
+    btnDown.disabled=!online;
+    btnUp.disabled=!online;
   }
 
-  function updateUI(vol100,muted){
+  function updateUI(vol100,muted,stale=false){
     volNum.textContent=vol100;
     barFill.style.width=vol100+"%";
     if(!dragging) slider.value=vol100;
+    volNum.classList.toggle("stale",stale);
+    barFill.classList.toggle("stale",stale);
     if(muted){
       volNum.classList.add("muted");
       barFill.classList.add("muted");
@@ -140,13 +152,14 @@
       const data=await res.json();
       if(!data.online){
         setOnline(false);
-        errorMsg.textContent="Speakers offline. "+(data.error||"");
+        updateUI(Math.round(data.volume*100),data.muted,true);
+        errorMsg.textContent="Speakers offline, showing last known volume. "+(data.error||"");
         errorMsg.classList.add("visible");
         return;
       }
       setOnline(true);
       errorMsg.classList.remove("visible");
-      updateUI(Math.round(data.volume*100),data.muted);
+      updateUI(Math.round(data.volume*100),data.muted,false);
       lastUpd.textContent="Last updated: "+new Date().toLocaleTimeString();
     } catch(err){
       setOnline(false);
@@ -156,22 +169,31 @@
   }
 
   async function setVolume(vol){
+    if(!isOnline) return;
     vol=Math.max(0,Math.min(100,vol));
     updateUI(vol,volNum.classList.contains("muted"));
     try{
-      await fetch(`/volume/set`,{
+      const res=await fetch(`/volume/set`,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({volume:vol}),
         signal:AbortSignal.timeout(15000)
       });
+      const data=await res.json();
+      if(!data.ok){
+        errorMsg.textContent="Failed to set volume. "+(data.error||"");
+        errorMsg.classList.add("visible");
+        fetchVolume();
+      }
     } catch(err){
       errorMsg.textContent="Failed to set volume. ("+err.message+")";
       errorMsg.classList.add("visible");
+      fetchVolume();
     }
   }
 
   function stepVolume(delta){
+    if(!isOnline) return;
     const current=parseInt(volNum.textContent)||0;
     setVolume(current+delta);
   }

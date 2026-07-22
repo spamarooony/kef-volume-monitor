@@ -81,6 +81,9 @@ def get_volume():
 
 @app.route("/volume/set", methods=["POST"])
 def set_volume():
+    with cache_lock:
+        if not cache["online"]:
+            return jsonify({"ok": False, "error": "Speaker offline"}), 503
     try:
         data = request.get_json()
         vol = int(round(float(data.get("volume", 0))))
@@ -90,7 +93,9 @@ def set_volume():
             cache.update({"volume": vol / 100.0, "online": True})
         return jsonify({"ok": True, "volume": vol / 100.0})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        with cache_lock:
+            cache.update({"online": False, "error": str(e)})
+        return jsonify({"ok": False, "error": str(e)}), 502
 
 @app.route("/status")
 def get_status():
