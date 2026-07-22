@@ -8,8 +8,9 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Bebas+Neue&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg:#0c0c0e;--surface:#141417;--border:#2a2a30;--accent:#e8c97a;
-    --text:#e8e4dc;--muted:#5a5a65;--red:#c0392b;--green:#2ecc71;
+    --bg:#0c0c0e;--surface:#141417;--border:#2a2a30;--accent:#5b82e0;
+    --text:#e8e4dc;--muted:#5a5a65;--red:#c0392b;--green:#2ecc71;--danger-zone:#7a2e3d;
+    --safe-pct:45%; /* must match SAFE_MAX in the script below */
   }
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;
@@ -29,13 +30,9 @@
   .vol-number{font-family:'Bebas Neue',sans-serif;font-size:clamp(80px,22vw,120px);
     line-height:1;color:var(--accent);letter-spacing:-0.02em;transition:color 0.3s}
   .vol-number.muted{color:var(--muted)}
-  .vol-number.stale,.bar-fill.stale{opacity:0.4}
+  .vol-number.stale{opacity:0.4}
   .vol-unit{font-size:13px;color:var(--muted);letter-spacing:0.15em;padding-bottom:14px}
-  .bar-track{height:3px;background:var(--border);width:100%;margin-bottom:28px}
-  .bar-fill{height:100%;background:var(--accent);width:0%;
-    transition:width 0.4s cubic-bezier(0.22,1,0.36,1)}
-  .bar-fill.muted{background:var(--muted)}
-  .slider-wrap{display:flex;align-items:center;gap:12px;margin-bottom:28px}
+  .slider-wrap{display:flex;align-items:center;gap:12px;margin-bottom:12px}
   .vol-btn{background:none;border:1px solid var(--border);color:var(--muted);
     font-family:'DM Mono',monospace;font-size:18px;width:36px;height:36px;
     cursor:pointer;border-radius:4px;transition:border-color 0.2s,color 0.2s;
@@ -43,15 +40,19 @@
   .vol-btn:hover{border-color:var(--accent);color:var(--accent)}
   .vol-btn:active{background:var(--border)}
   .vol-btn:disabled{opacity:0.35;cursor:not-allowed;border-color:var(--border);color:var(--muted)}
-  input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:3px;
-    background:var(--border);outline:none;cursor:pointer;border-radius:2px}
+  .slider-track{position:relative;flex:1;height:8px;border-radius:4px;overflow:visible;
+    background:linear-gradient(to right,var(--border) 0%,var(--border) var(--safe-pct),var(--danger-zone) var(--safe-pct),var(--danger-zone) 100%)}
+  input[type=range]{-webkit-appearance:none;appearance:none;position:absolute;left:0;top:0;
+    height:8px;width:var(--safe-pct);outline:none;cursor:pointer;border-radius:4px;
+    background:transparent;transition:opacity 0.3s}
   input[type=range]:disabled{opacity:0.35;cursor:not-allowed}
-  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
-    width:16px;height:16px;border-radius:50%;background:var(--accent);cursor:pointer;
-    transition:transform 0.15s}
-  input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.3)}
-  input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;
-    background:var(--accent);cursor:pointer;border:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;box-sizing:border-box;
+    width:24px;height:24px;border-radius:50%;background:var(--accent);cursor:pointer;
+    border:3px solid var(--surface);box-shadow:0 0 0 1px var(--border);transition:transform 0.15s}
+  input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2)}
+  input[type=range]::-moz-range-thumb{box-sizing:border-box;width:24px;height:24px;border-radius:50%;
+    background:var(--accent);cursor:pointer;border:3px solid var(--surface);box-shadow:0 0 0 1px var(--border)}
+  input[type=range]::-moz-range-track{background:transparent}
   .meta{display:flex;justify-content:space-between;align-items:center;font-size:11px;
     letter-spacing:0.12em;color:var(--muted);border-top:1px solid var(--border);padding-top:20px}
   .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);
@@ -67,6 +68,16 @@
     font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.15em;padding:5px 12px;
     cursor:pointer;border-radius:4px;transition:border-color 0.2s,color 0.2s}
   .refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .safety-toggle{display:flex;align-items:center;gap:8px;font-size:10px;letter-spacing:0.1em;
+    color:var(--muted);margin-bottom:24px;cursor:pointer;user-select:none}
+  .safety-toggle input[type=checkbox]{-webkit-appearance:none;appearance:none;position:relative;
+    flex-shrink:0;width:14px;height:14px;border:1px solid var(--border);border-radius:3px;
+    background:var(--bg);cursor:pointer;transition:border-color 0.2s,background 0.2s}
+  .safety-toggle:hover input[type=checkbox]{border-color:var(--accent)}
+  .safety-toggle input[type=checkbox]:checked{background:var(--accent);border-color:var(--accent)}
+  .safety-toggle input[type=checkbox]:checked::after{content:'';position:absolute;
+    left:4px;top:1px;width:4px;height:8px;border:solid var(--bg);border-width:0 2px 2px 0;
+    transform:rotate(45deg)}
   .last-updated{font-size:10px;color:var(--muted);margin-top:14px;letter-spacing:0.08em;min-height:14px}
   .error-msg{display:none;margin-top:20px;padding:12px 16px;border:1px solid #3a1a1a;
     background:#1e0d0d;color:#e07070;font-size:11px;line-height:1.6;border-radius:4px}
@@ -81,12 +92,17 @@
     <div class="vol-number" id="volNum">--</div>
     <div class="vol-unit">VOL</div>
   </div>
-  <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
   <div class="slider-wrap">
     <button class="vol-btn" id="btnDown" onclick="stepVolume(-1)" disabled>−</button>
-    <input type="range" id="slider" min="0" max="100" value="0" disabled>
+    <div class="slider-track" id="sliderTrack">
+      <input type="range" id="slider" min="0" max="45" value="0" disabled>
+    </div>
     <button class="vol-btn" id="btnUp" onclick="stepVolume(+1)" disabled>+</button>
   </div>
+  <label class="safety-toggle" for="unlockCheckbox">
+    <input type="checkbox" id="unlockCheckbox">
+    <span>UNLOCK FULL RANGE (UP TO 100)</span>
+  </label>
   <div class="meta">
     <div><span class="dot loading" id="dot"></span><span id="statusText">CONNECTING…</span></div>
     <div>
@@ -103,22 +119,65 @@
   const AUTO_REFRESH_MS = 3000;
 
   const volNum=document.getElementById("volNum");
-  const barFill=document.getElementById("barFill");
   const dot=document.getElementById("dot");
   const statusTxt=document.getElementById("statusText");
   const muteBadge=document.getElementById("muteBadge");
   const lastUpd=document.getElementById("lastUpdated");
   const errorMsg=document.getElementById("errorMsg");
   const slider=document.getElementById("slider");
+  const sliderTrack=document.getElementById("sliderTrack");
   const btnDown=document.getElementById("btnDown");
   const btnUp=document.getElementById("btnUp");
+  const unlockCheckbox=document.getElementById("unlockCheckbox");
+
+  const SAFE_MAX=45;
+  const FULL_MAX=100;
+  const THUMB_PX=24; // must match the thumb width/height in CSS
+  let maxVol=SAFE_MAX;
 
   let dragging=false;
   let isOnline=false;
-  slider.addEventListener("mousedown",()=>dragging=true);
-  slider.addEventListener("touchstart",()=>dragging=true);
-  slider.addEventListener("mouseup",()=>{dragging=false;setVolume(parseInt(slider.value));});
-  slider.addEventListener("touchend",()=>{dragging=false;setVolume(parseInt(slider.value));});
+  let committing=false; // true from the moment an edit starts until it's fully resolved - blocks polling from clobbering the display mid-edit
+  let sendQueue=Promise.resolve(); // serializes set-volume requests so rapid edits never open overlapping TCP connections to the speaker
+
+  function applyMaxVol(){
+    // slider.max and slider.width move together so a given value always sits at the same
+    // pixel position on the track regardless of lock state - the browser physically can't
+    // drag the thumb past the boundary, instead of just snapping back after release.
+    // Native range inputs inset the thumb's travel by half its own width on each edge, so a
+    // plain percentage of the track width doesn't land in the same place across different
+    // box widths - THUMB_PX has to be factored into the math, using the track's real pixel size.
+    slider.max=maxVol;
+    const trackW=sliderTrack.clientWidth;
+    slider.style.width=(THUMB_PX+(maxVol/FULL_MAX)*(trackW-THUMB_PX))+"px";
+  }
+  applyMaxVol();
+  window.addEventListener("resize",applyMaxVol);
+
+  unlockCheckbox.addEventListener("change",()=>{
+    maxVol=unlockCheckbox.checked?FULL_MAX:SAFE_MAX;
+    applyMaxVol();
+    const current=parseInt(volNum.textContent)||0;
+    if(!unlockCheckbox.checked && current>SAFE_MAX){
+      clearTimeout(stepTimer);
+      stepPending=null;
+      queueSetVolume(SAFE_MAX);
+    } else {
+      updateUI(current,volNum.classList.contains("muted")); // refresh the fill gradient against the new maxVol immediately, don't wait for the next poll
+    }
+  });
+
+  slider.addEventListener("mousedown",()=>{dragging=true;committing=true;});
+  slider.addEventListener("touchstart",()=>{dragging=true;committing=true;});
+  slider.addEventListener("input",()=>{
+    if(!dragging) return;
+    updateUI(parseInt(slider.value),volNum.classList.contains("muted"));
+  });
+  // mouseup/touchend are bound on window, not the slider itself - a drag can easily end with
+  // the pointer off the (thin) track, and a slider-scoped listener would then never fire,
+  // leaving `dragging` stuck true forever and the thumb permanently frozen against updates.
+  window.addEventListener("mouseup",()=>{if(dragging){dragging=false;queueSetVolume(parseInt(slider.value));}});
+  window.addEventListener("touchend",()=>{if(dragging){dragging=false;queueSetVolume(parseInt(slider.value));}});
 
   function setOnline(online){
     isOnline=online;
@@ -129,37 +188,44 @@
     btnUp.disabled=!online;
   }
 
+  function sliderGradient(vol100,muted){
+    // The safe/danger boundary is drawn once by .slider-track's own static background and
+    // never moves. This only needs to paint the fill (0 to current value) and stay transparent
+    // everywhere else, so the track's boundary line always shows through underneath unchanged.
+    const v=Math.max(0,Math.min(maxVol,vol100));
+    const fill=muted?"var(--muted)":"var(--accent)";
+    const pct=maxVol>0?(v/maxVol*100):0;
+    return `linear-gradient(to right,${fill} 0%,${fill} ${pct}%,transparent ${pct}%,transparent 100%)`;
+  }
+
   function updateUI(vol100,muted,stale=false){
     volNum.textContent=vol100;
-    barFill.style.width=vol100+"%";
     if(!dragging) slider.value=vol100;
+    slider.style.background=sliderGradient(vol100,muted);
     volNum.classList.toggle("stale",stale);
-    barFill.classList.toggle("stale",stale);
     if(muted){
       volNum.classList.add("muted");
-      barFill.classList.add("muted");
       muteBadge.classList.add("visible");
     } else {
       volNum.classList.remove("muted");
-      barFill.classList.remove("muted");
       muteBadge.classList.remove("visible");
     }
   }
 
-  async function fetchVolume(){
+  async function fetchVolume(force=false){
     try{
       const res=await fetch(`/volume`,{signal:AbortSignal.timeout(15000)});
       const data=await res.json();
       if(!data.online){
         setOnline(false);
-        updateUI(Math.round(data.volume*100),data.muted,true);
+        if(force||!committing) updateUI(Math.round(data.volume*100),data.muted,true);
         errorMsg.textContent="Speakers offline, showing last known volume. "+(data.error||"");
         errorMsg.classList.add("visible");
         return;
       }
       setOnline(true);
       errorMsg.classList.remove("visible");
-      updateUI(Math.round(data.volume*100),data.muted,false);
+      if(force||!committing) updateUI(Math.round(data.volume*100),data.muted,false);
       lastUpd.textContent="Last updated: "+new Date().toLocaleTimeString();
     } catch(err){
       setOnline(false);
@@ -170,7 +236,8 @@
 
   async function setVolume(vol){
     if(!isOnline) return;
-    vol=Math.max(0,Math.min(100,vol));
+    vol=Math.max(0,Math.min(maxVol,vol));
+    committing=true;
     updateUI(vol,volNum.classList.contains("muted"));
     try{
       const res=await fetch(`/volume/set`,{
@@ -183,19 +250,39 @@
       if(!data.ok){
         errorMsg.textContent="Failed to set volume. "+(data.error||"");
         errorMsg.classList.add("visible");
-        fetchVolume();
+        await fetchVolume(true);
       }
     } catch(err){
       errorMsg.textContent="Failed to set volume. ("+err.message+")";
       errorMsg.classList.add("visible");
-      fetchVolume();
+      await fetchVolume(true);
+    } finally {
+      committing=false;
     }
   }
 
+  function queueSetVolume(vol){
+    sendQueue=sendQueue.then(()=>setVolume(vol),()=>setVolume(vol));
+    return sendQueue;
+  }
+
+  const STEP_DEBOUNCE_MS=250;
+  let stepTimer=null;
+  let stepPending=null;
+
   function stepVolume(delta){
     if(!isOnline) return;
-    const current=parseInt(volNum.textContent)||0;
-    setVolume(current+delta);
+    const base=stepPending!==null?stepPending:(parseInt(volNum.textContent)||0);
+    const next=Math.max(0,Math.min(maxVol,base+delta));
+    stepPending=next;
+    committing=true;
+    updateUI(next,volNum.classList.contains("muted"));
+    clearTimeout(stepTimer);
+    stepTimer=setTimeout(()=>{
+      const v=stepPending;
+      stepPending=null;
+      queueSetVolume(v);
+    },STEP_DEBOUNCE_MS);
   }
 
   fetchVolume();
