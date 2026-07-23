@@ -109,3 +109,6 @@ As a result, the dashboard can only ever report "offline" (last known volume sho
 ## Possible Future Directions Discussed
 - Running the same dashboard on a small WiFi-connected ESP32 AMOLED touch display, talking to the speakers directly over TCP with no Ubuntu server involved. If that pans out, look into publishing it on [APP PIXELS](https://www.app-pixels.com/), an app store/catalog for Waveshare ESP32-S3 AMOLED devices
 - Running the whole stack (server + browser) locally on a repurposed old Android phone via Termux, as a fully self-contained wall-mounted display (the current `/display` page still relies on the Ubuntu server and a regular mobile browser, not a standalone on-phone stack)
+
+## License
+[PolyForm Noncommercial 1.0.0](LICENSE), free for personal, hobby, educational, and nonprofit use; commercial use is not permitted.
