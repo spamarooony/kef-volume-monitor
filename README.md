@@ -4,7 +4,7 @@
 Check and change the volume of first-generation KEF LS50 Wireless speakers from a website, without a remote in hand.
 
 ## The Challenge
-The gen 1 LS50 Wireless has no official HTTP or REST API. Unlike the gen 2 models, it only accepts raw byte commands over a plain TCP socket on port 50001 (an undocumented, community-reverse-engineered protocol). This meant a browser (which can only speak HTTP) couldn't talk to the speakers directly; something in between was needed to translate.
+The gen 1 LS50 Wireless has no official HTTP or REST API. Unlike the gen 2 models, it only accepts raw byte commands over a plain TCP socket on port 50001 (a protocol KEF never documented publicly, reverse-engineered instead by the community behind [`aiokef`](https://github.com/basnijholt/aiokef)). This meant a browser (which can only speak HTTP) couldn't talk to the speakers directly; something in between was needed to translate.
 
 ## Architecture
 
