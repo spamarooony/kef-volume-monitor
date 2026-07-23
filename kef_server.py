@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import logging
 import os
 import socket
@@ -25,6 +26,33 @@ speaker_ip = DEFAULT_SPEAKER_IP
 
 cache = {"online": False, "volume": 0.0, "muted": False, "error": "Starting up"}
 cache_lock = threading.Lock()
+
+STATE_FILE = os.path.join(APP_DIR, "kef_state.json")
+_last_persisted = {"volume": None, "muted": None}  # tracks what's on disk, so poll_loop only writes on actual change
+
+def load_state():
+    # Only ever seeds volume/muted - online and error are always runtime-derived, never restored.
+    try:
+        with open(STATE_FILE) as f:
+            data = json.load(f)
+        with cache_lock:
+            cache["volume"] = float(data["volume"])
+            cache["muted"] = bool(data["muted"])
+        _last_persisted["volume"] = cache["volume"]
+        _last_persisted["muted"] = cache["muted"]
+        log.info(f"loaded last-known state from {STATE_FILE}: volume={cache['volume']:.2f}, muted={cache['muted']}")
+    except Exception as e:
+        log.info(f"no usable prior state ({e}), starting with defaults")
+
+def save_state(volume, muted):
+    # Never allowed to raise - a persistence failure must not crash the server or block a poll/set cycle.
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump({"volume": volume, "muted": muted}, f)
+        _last_persisted["volume"] = volume
+        _last_persisted["muted"] = muted
+    except Exception as e:
+        log.warning(f"failed to persist state: {e}")
 
 # Protocol constants taken directly from aiokef source
 _GET_START = ord("G")  # 0x47
@@ -59,6 +87,8 @@ def poll_loop():
             volume, muted = parse_volume(response)
             with cache_lock:
                 cache.update({"online": True, "volume": volume, "muted": muted, "error": None})
+            if volume != _last_persisted["volume"] or muted != _last_persisted["muted"]:
+                save_state(volume, muted)  # picks up changes made by other clients (e.g. a physical remote)
             if was_online is False:
                 log.info(f"speaker back online (volume={volume:.2f}, muted={muted})")
             was_online = True
@@ -73,6 +103,14 @@ def poll_loop():
 @app.route("/")
 def index():
     return send_from_directory(APP_DIR, "kef_volume.html")
+
+@app.route("/display")
+def display():
+    return send_from_directory(APP_DIR, "kef_display.html")
+
+@app.route("/manifest.json")
+def manifest():
+    return send_from_directory(APP_DIR, "manifest.json")
 
 @app.route("/volume")
 def get_volume():
@@ -91,6 +129,7 @@ def set_volume():
         tcp_call(speaker_ip, set_volume_cmd(vol))
         with cache_lock:
             cache.update({"volume": vol / 100.0, "online": True})
+        save_state(vol / 100.0, cache["muted"])  # deliberate user action, worth persisting right away
         return jsonify({"ok": True, "volume": vol / 100.0})
     except Exception as e:
         with cache_lock:
@@ -107,6 +146,8 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=SERVER_PORT)
     args = parser.parse_args()
     speaker_ip = args.ip
+
+    load_state()
 
     t = threading.Thread(target=poll_loop, daemon=True)
     t.start()

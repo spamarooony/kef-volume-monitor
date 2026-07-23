@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>KEF LS50W (Display)</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="KEF Volume">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* --bg is true black (not kef_volume.html's #0c0c0e) - on OLED that's the difference between
+       a pixel actually switching off and one staying lit at low brightness, which is the whole
+       point of this page. No scanline/texture overlay either, for the same reason - it would sit
+       outside the fading #stage and stay visible even while "off". */
+    --bg:#000000;--surface:#141417;--border:#2a2a30;--accent:#5b82e0;
+    --text:#e8e4dc;--muted:#82838f;--red:#c0392b;--green:#2ecc71;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:100%;height:100%}
+  body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;
+    overflow:hidden;position:fixed;inset:0;
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none}
+
+  .stage{position:fixed;inset:0;opacity:1;z-index:1}
+  .stage.fade-out{transition:opacity 1.5s ease-out}
+  .stage.dimmed{opacity:0}
+
+  .widget{position:absolute;display:flex;align-items:center;justify-content:center;touch-action:none}
+  body.edit-mode .widget{outline:2px dashed var(--accent);outline-offset:4px;cursor:move}
+  /* Percentage-based default geometry lives in CSS, not JS-computed pixels, so the very first
+     render is always correct relative to whatever viewport size actually exists - no dependency
+     on reading window.innerWidth/innerHeight at a moment that might race ahead of layout. JS only
+     overwrites these with inline pixel styles once a saved layout is loaded or the user drags/resizes. */
+  #widgetNumber{left:10%;top:15%;width:80%;height:45%}
+  #widgetBar{left:10%;top:65%;width:80%;height:12%}
+
+  /* No explicit width - as a flex item this shrinks to its content's true intrinsic size, which
+     refreshNumberFont relies on to measure the actual rendered text dimensions (not an estimate). */
+  .vol-display{font-family:'Bebas Neue',sans-serif;color:var(--accent);line-height:1;
+    letter-spacing:-0.02em;transition:color 0.3s}
+  .vol-display.muted{color:var(--muted)}
+  .vol-display.stale{opacity:0.4}
+
+  .bar-track{width:100%;height:100%;background:var(--surface);border:1px solid var(--border);
+    border-radius:10px;overflow:hidden;position:relative}
+  .bar-fill{position:absolute;left:0;top:0;bottom:0;width:0%;background:var(--accent);
+    transition:width 0.3s ease,background 0.3s ease}
+  .bar-fill.muted{background:var(--muted)}
+
+  .resize-handle{position:absolute;right:-8px;bottom:-8px;width:30px;height:30px;
+    background:var(--accent);border-radius:50%;display:none;cursor:nwse-resize;
+    border:3px solid var(--bg);touch-action:none}
+  body.edit-mode .resize-handle{display:block}
+
+  .chrome{position:fixed;top:16px;right:16px;display:flex;align-items:center;gap:10px;z-index:5}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);
+    transition:background 0.3s}
+  .dot.online{background:var(--green);box-shadow:0 0 6px var(--green)}
+  .dot.offline{background:var(--red);box-shadow:0 0 6px var(--red)}
+  .dot.loading{animation:pulse 1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+  .chrome-btn{background:var(--surface);border:1px solid var(--border);color:var(--muted);
+    width:42px;height:42px;border-radius:50%;font-size:18px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:border-color 0.2s,color 0.2s}
+  .chrome-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .chrome-btn[hidden]{display:none}
+  /* svg is inline by default and carries a few px of baseline gap even inside a flex-centered
+     parent - block display removes that so the icon actually lands in the button's true center. */
+  .chrome-btn svg{display:block}
+
+  .panel{position:fixed;top:66px;right:16px;z-index:6;background:var(--surface);
+    border:1px solid var(--border);border-radius:6px;padding:20px 22px;width:min(300px,80vw)}
+  .panel[hidden]{display:none}
+  .panel-label{display:block;font-size:10px;letter-spacing:0.12em;color:var(--muted);margin-bottom:10px}
+  .panel-row{margin-bottom:18px}
+  .preset-group{display:flex;gap:6px}
+  .preset-btn{flex:1;background:none;border:1px solid var(--border);color:var(--muted);
+    font-family:'DM Mono',monospace;font-size:11px;padding:8px 0;border-radius:4px;cursor:pointer;
+    transition:border-color 0.2s,color 0.2s}
+  .preset-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .preset-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(91,130,224,0.12)}
+
+  .safety-toggle{display:flex;align-items:center;gap:8px;font-size:10px;letter-spacing:0.08em;
+    color:var(--muted);margin-bottom:16px;cursor:pointer;user-select:none}
+  .safety-toggle input[type=checkbox]{-webkit-appearance:none;appearance:none;position:relative;
+    flex-shrink:0;width:14px;height:14px;border:1px solid var(--border);border-radius:3px;
+    background:var(--bg);cursor:pointer;transition:border-color 0.2s,background 0.2s}
+  .safety-toggle:hover input[type=checkbox]{border-color:var(--accent)}
+  .safety-toggle input[type=checkbox]:checked{background:var(--accent);border-color:var(--accent)}
+  .safety-toggle input[type=checkbox]:checked::after{content:'';position:absolute;
+    left:4px;top:1px;width:4px;height:8px;border:solid var(--bg);border-width:0 2px 2px 0;
+    transform:rotate(45deg)}
+
+  .refresh-btn{background:none;border:1px solid var(--border);color:var(--muted);
+    font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.12em;padding:8px 14px;
+    cursor:pointer;border-radius:4px;transition:border-color 0.2s,color 0.2s;width:100%}
+  .refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+  .ios-hint{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:5;
+    font-size:11px;letter-spacing:0.05em;color:var(--muted);background:var(--surface);
+    border:1px solid var(--border);padding:8px 14px;border-radius:20px;white-space:nowrap}
+  .ios-hint[hidden]{display:none}
+
+  /* Kept at 1x1px and barely-above-zero opacity, never display:none/visibility:hidden - some
+     browsers pause video playback on elements they consider fully hidden, which would defeat
+     the whole point of this element (see the keepAwake script below and its comment on why the
+     audio track has to stay unmuted). */
+  #keepAwake{position:fixed;top:0;left:0;width:1px;height:1px;opacity:0.01;pointer-events:none}
+
+  /* Manual rotate is pure CSS, not the Orientation Lock API - many Android devices simply refuse
+     to lock to reverse-portrait at all (silently coercing it back to normal portrait), so relying
+     on the native API can't guarantee all 4 states on every device. Rotating our own rendered
+     content sidesteps that entirely. Applying a transform here also makes this element the
+     containing block for every position:fixed descendant (.stage/.chrome/.panel/.ios-hint), which
+     is exactly what keeps all their existing viewport-relative CSS working unchanged post-rotation -
+     they end up positioned relative to this (correctly sized/centered) box instead of the real,
+     un-rotated viewport. */
+  #rotateWrapper{position:fixed;top:0;left:0;width:100vw;height:100vh;transform-origin:center center}
+  #rotateWrapper.rot-180{transform:rotate(180deg)}
+  #rotateWrapper.rot-90,#rotateWrapper.rot-270{
+    top:50%;left:50%;width:100vh;height:100vw;
+  }
+  #rotateWrapper.rot-90{transform:translate(-50%,-50%) rotate(90deg)}
+  #rotateWrapper.rot-270{transform:translate(-50%,-50%) rotate(270deg)}
+</style>
+</head>
+<body>
+
+<video id="keepAwake" loop playsinline autoplay aria-hidden="true"
+  src="data:video/mp4;base64,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">
+</video>
+
+<div id="rotateWrapper">
+
+<div class="stage" id="stage">
+  <div class="widget" id="widgetNumber">
+    <div class="vol-display" id="volNum">--</div>
+    <div class="resize-handle" id="handleNumber"></div>
+  </div>
+  <div class="widget" id="widgetBar">
+    <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
+    <div class="resize-handle" id="handleBar"></div>
+  </div>
+</div>
+
+<div class="chrome">
+  <button class="chrome-btn" id="rotateBtn" aria-label="Rotate display" hidden><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 3v5h-5"/></svg></button>
+  <button class="chrome-btn" id="fullscreenBtn" aria-label="Toggle fullscreen"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V5a1 1 0 0 1 1-1h4"/><path d="M15 4h4a1 1 0 0 1 1 1v4"/><path d="M20 15v4a1 1 0 0 1-1 1h-4"/><path d="M9 20H5a1 1 0 0 1-1-1v-4"/></svg></button>
+  <button class="chrome-btn" id="settingsBtn" aria-label="Settings">⚙</button>
+  <span class="dot loading" id="dot"></span>
+</div>
+
+<div class="panel" id="settingsPanel" hidden>
+  <div class="panel-row">
+    <span class="panel-label">AUTO-DIM TIMEOUT</span>
+    <div class="preset-group" id="timeoutPresets">
+      <button class="preset-btn" data-secs="2">2s</button>
+      <button class="preset-btn" data-secs="5">5s</button>
+      <button class="preset-btn" data-secs="10">10s</button>
+      <button class="preset-btn" data-secs="30">30s</button>
+    </div>
+  </div>
+  <label class="safety-toggle" for="alwaysOnCheckbox">
+    <input type="checkbox" id="alwaysOnCheckbox">
+    <span>ALWAYS ON (DISABLE AUTO-DIM)</span>
+  </label>
+  <label class="safety-toggle" for="editModeCheckbox">
+    <input type="checkbox" id="editModeCheckbox">
+    <span>EDIT LAYOUT (DRAG / RESIZE)</span>
+  </label>
+  <button class="refresh-btn" id="resetLayoutBtn">↺ RESET LAYOUT</button>
+</div>
+
+<div class="ios-hint" id="iosHint" hidden>Tap Share → Add to Home Screen for fullscreen</div>
+
+</div>
+
+<script>
+  // Page is served by the same Flask app it talks to, same as kef_volume.html - relative
+  // paths work regardless of hostname/IP.
+  const AUTO_REFRESH_MS = 3000;
+  const SETTINGS_KEY = "kef_display_settings";
+  const LAYOUT_KEY = "kef_display_layout";
+  const MIN_WIDTH = 80;
+  const MIN_HEIGHT = 60;
+  const EDGE_MARGIN = 20; // a widget can never be dragged fully off-viewport - always this much stays reachable
+
+  const keepAwakeVideo=document.getElementById("keepAwake");
+  const rotateWrapper=document.getElementById("rotateWrapper");
+  const stage=document.getElementById("stage");
+  const volNum=document.getElementById("volNum");
+  const barFill=document.getElementById("barFill");
+  const widgetNumber=document.getElementById("widgetNumber");
+  const widgetBar=document.getElementById("widgetBar");
+  const handleNumber=document.getElementById("handleNumber");
+  const handleBar=document.getElementById("handleBar");
+  const dot=document.getElementById("dot");
+  const fullscreenBtn=document.getElementById("fullscreenBtn");
+  const rotateBtn=document.getElementById("rotateBtn");
+  const settingsBtn=document.getElementById("settingsBtn");
+  const settingsPanel=document.getElementById("settingsPanel");
+  const alwaysOnCheckbox=document.getElementById("alwaysOnCheckbox");
+  const editModeCheckbox=document.getElementById("editModeCheckbox");
+  const resetLayoutBtn=document.getElementById("resetLayoutBtn");
+  const iosHint=document.getElementById("iosHint");
+
+  let settings={timeoutSeconds:2,alwaysOn:false}; // 2s default, like a normal TV's volume OSD
+  // layoutHome is the one authoritative source of truth for the arrangement - {layout, canvasSize}
+  // at whatever canvas size it was last explicitly committed for (edited, reset, or loaded). layout
+  // is the currently DISPLAYED numbers: always freshly derived from layoutHome for the current
+  // canvas (see reconcileLayoutToCurrentSize), except mid-drag/resize where it holds live values
+  // that get committed back into layoutHome once the gesture ends.
+  let layoutHome=null;
+  let layout=null;
+  let editMode=false;
+  let panelOpen=false;
+  let lastActivity=Date.now();
+  let lastRenderedVolume=null;
+
+  function widgetEl(key){return key==="number"?widgetNumber:widgetBar;}
+
+  // Reads each widget's actual on-screen geometry (post-layout, via offsetLeft/Top/Width/Height -
+  // valid here since .stage is their positioned ancestor and exactly fills the viewport). Used to
+  // turn the CSS percentage-based bootstrap defaults into concrete pixel numbers, establishing the
+  // very first layoutHome.
+  function rectOf(el){
+    return {x:el.offsetLeft,y:el.offsetTop,width:el.offsetWidth,height:el.offsetHeight};
+  }
+  function captureCurrentLayout(){
+    return {number:rectOf(widgetNumber),bar:rectOf(widgetBar)};
+  }
+  // Defensive fallback only - by the time a user could actually start a drag, init (see below) has
+  // long since established layoutHome. Cheap insurance against a pathological edge case (e.g. a
+  // drag starting before the deferred init capture has run) rather than the primary path.
+  function ensureLayout(){
+    if(!layoutHome){
+      layoutHome={layout:captureCurrentLayout(),canvasSize:{width:rotateWrapper.offsetWidth,height:rotateWrapper.offsetHeight}};
+    }
+    if(!layout) layout=JSON.parse(JSON.stringify(layoutHome.layout));
+  }
+
+  // Derives the DISPLAYED layout from the fixed layoutHome reference, scaled to fit the current
+  // canvas - "scale the whole group to fit rotated/resized space". Deliberately always derives from
+  // the SAME fixed layoutHome, never from whatever the previously-derived layout happened to be -
+  // re-deriving from an already-derived result would compound shrinkage every time the canvas
+  // alternates between two different aspect ratios (which every single rotation does), since
+  // Math.min(a,b) picks the same tighter ratio regardless of which direction you're converting, so
+  // a round trip through two shapes would shrink twice instead of once out and once back.
+  // Uses ONE uniform scale factor (never independent per-axis factors, which would stretch each
+  // widget into a different shape instead of shrinking/growing it intact), then centers the whole
+  // scaled group within the new canvas - the same "fit and center" behavior as CSS object-fit:contain.
+  function reconcileLayoutToCurrentSize(){
+    if(!layoutHome) return; // init's deferred capture hasn't run yet - nothing to reconcile
+    const curW=rotateWrapper.offsetWidth,curH=rotateWrapper.offsetHeight;
+    const homeW=layoutHome.canvasSize.width,homeH=layoutHome.canvasSize.height;
+    const scale=Math.min(curW/homeW,curH/homeH);
+    const offsetX=(curW-homeW*scale)/2;
+    const offsetY=(curH-homeH*scale)/2;
+    layout={};
+    ["number","bar"].forEach(key=>{
+      const h=layoutHome.layout[key];
+      layout[key]={x:h.x*scale+offsetX,y:h.y*scale+offsetY,width:h.width*scale,height:h.height*scale};
+    });
+    applyWidget("number");
+    applyWidget("bar");
+  }
+
+  function refreshNumberFont(){
+    // Measures the real rendered text at a trial size rather than guessing from constants (an
+    // earlier version used fixed height/width ratios, which were too conservative and left the
+    // digits visibly smaller than the box could actually fit). Font rendering scales linearly with
+    // font-size, so one measurement is enough to solve exactly for the largest uniform size that
+    // fits both the box's width and height - the trial size itself is arbitrary, it cancels out.
+    const boxW=widgetNumber.offsetWidth,boxH=widgetNumber.offsetHeight;
+    const trial=100;
+    volNum.style.fontSize=trial+"px";
+    const scale=Math.min(boxW/volNum.offsetWidth,boxH/volNum.offsetHeight);
+    volNum.style.fontSize=Math.max(24,trial*scale)+"px";
+  }
+
+  function applyWidget(key){
+    const el=widgetEl(key);
+    const l=layout[key];
+    el.style.left=l.x+"px";
+    el.style.top=l.y+"px";
+    el.style.width=l.width+"px";
+    el.style.height=l.height+"px";
+    if(key==="number") refreshNumberFont();
+  }
+
+  // Commits the currently displayed layout as the new authoritative home, at whatever canvas size
+  // is currently in effect - whatever orientation you're editing in becomes the source of truth
+  // that every other orientation is subsequently derived from.
+  function commitLayoutAsHome(){
+    layoutHome={layout:JSON.parse(JSON.stringify(layout)),canvasSize:{width:rotateWrapper.offsetWidth,height:rotateWrapper.offsetHeight}};
+    saveLayoutHome();
+  }
+
+  function resetLayout(){
+    // Reset still goes through the same layoutHome-plus-reconcile pipeline as everything else - not
+    // a special "no layout" state - clear inline styles to reveal the CSS percentage bootstrap
+    // defaults, capture that geometry fresh, then commit it as the new home.
+    [widgetNumber,widgetBar].forEach(el=>{
+      el.style.left="";el.style.top="";el.style.width="";el.style.height="";
+    });
+    layout=captureCurrentLayout();
+    commitLayoutAsHome();
+    applyWidget("number");
+    applyWidget("bar");
+  }
+
+  function saveLayoutHome(){
+    try{localStorage.setItem(LAYOUT_KEY,JSON.stringify(layoutHome));}catch(e){}
+  }
+
+  function loadLayoutHome(){
+    try{
+      const raw=localStorage.getItem(LAYOUT_KEY);
+      if(raw){
+        const parsed=JSON.parse(raw);
+        if(parsed.layout&&parsed.canvasSize) return parsed;
+      }
+    }catch(e){}
+    return null;
+  }
+
+  function saveSettings(){
+    try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings));}catch(e){}
+  }
+
+  function loadSettings(){
+    try{
+      const raw=localStorage.getItem(SETTINGS_KEY);
+      if(raw){
+        const parsed=JSON.parse(raw);
+        if(typeof parsed.timeoutSeconds==="number") settings.timeoutSeconds=parsed.timeoutSeconds;
+        settings.alwaysOn=!!parsed.alwaysOn;
+      }
+    }catch(e){}
+  }
+
+  function updatePresetActiveState(){
+    document.querySelectorAll(".preset-btn").forEach(btn=>{
+      btn.classList.toggle("active",parseInt(btn.dataset.secs)===settings.timeoutSeconds);
+    });
+  }
+
+  // --- fade/dim state machine ---
+  function wake(){
+    lastActivity=Date.now();
+    stage.classList.remove("fade-out");
+    stage.classList.remove("dimmed");
+  }
+
+  function checkDim(){
+    if(settings.alwaysOn||editMode||panelOpen) return;
+    if(stage.classList.contains("dimmed")) return;
+    if(Date.now()-lastActivity>settings.timeoutSeconds*1000){
+      stage.classList.add("fade-out");
+      requestAnimationFrame(()=>stage.classList.add("dimmed"));
+    }
+  }
+
+  // Capture phase, ahead of any button's own click handler: while dimmed, the first tap anywhere
+  // only wakes the display and is swallowed before it reaches whatever it landed on (e.g. the
+  // settings gear) - otherwise a blind tap meant to wake the screen could also fire a hidden button.
+  // ensureKeepAwakePlaying() is called directly here (not via a separate listener) because
+  // stopPropagation() below would otherwise prevent it from ever running - the display sits dimmed
+  // most of the time in real use, so a listener that only fires when propagation isn't stopped
+  // would almost never get the user-gesture opportunity it needs to unblock the unmuted video.
+  document.addEventListener("pointerdown",(e)=>{
+    const wasDimmed=stage.classList.contains("dimmed");
+    wake();
+    ensureKeepAwakePlaying();
+    if(wasDimmed) e.stopPropagation();
+  },true);
+
+  // --- volume display ---
+  function setOnline(online){
+    dot.className="dot "+(online?"online":"offline");
+  }
+
+  function updateDisplay(vol100,muted,stale){
+    volNum.textContent=vol100;
+    volNum.classList.toggle("muted",muted);
+    volNum.classList.toggle("stale",stale);
+    barFill.style.width=vol100+"%";
+    barFill.classList.toggle("muted",muted);
+    refreshNumberFont(); // digit count changes (e.g. 9 -> 10) shift the width-based cap in refreshNumberFont
+  }
+
+  async function fetchVolume(){
+    try{
+      const res=await fetch("/volume",{signal:AbortSignal.timeout(15000)});
+      const data=await res.json();
+      const vol100=Math.round(data.volume*100);
+      if(lastRenderedVolume!==null&&vol100!==lastRenderedVolume) wake(); // a genuine volume change wakes the display too
+      lastRenderedVolume=vol100;
+      setOnline(data.online);
+      updateDisplay(vol100,data.muted,!data.online);
+    }catch(err){
+      setOnline(false);
+    }
+  }
+
+  // --- settings panel ---
+  function togglePanel(){
+    panelOpen=!panelOpen;
+    settingsPanel.hidden=!panelOpen;
+  }
+  settingsBtn.addEventListener("click",togglePanel);
+
+  document.querySelectorAll(".preset-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      settings.timeoutSeconds=parseInt(btn.dataset.secs);
+      updatePresetActiveState();
+      saveSettings();
+    });
+  });
+
+  alwaysOnCheckbox.addEventListener("change",()=>{
+    settings.alwaysOn=alwaysOnCheckbox.checked;
+    if(settings.alwaysOn) wake();
+    saveSettings();
+  });
+
+  editModeCheckbox.addEventListener("change",()=>{
+    editMode=editModeCheckbox.checked;
+    document.body.classList.toggle("edit-mode",editMode);
+    if(editMode) wake();
+  });
+
+  resetLayoutBtn.addEventListener("click",resetLayout);
+
+  // --- drag / resize (edit mode only) ---
+  function clamp(val,size,viewportSize){
+    const min=-(size-EDGE_MARGIN);
+    const max=viewportSize-EDGE_MARGIN;
+    return Math.min(max,Math.max(min,val));
+  }
+
+  function startDrag(e,key){
+    if(!editMode) return;
+    e.preventDefault();
+    ensureLayout();
+    const startX=e.clientX,startY=e.clientY;
+    const orig={...layout[key]};
+    function onMove(ev){
+      const dx=ev.clientX-startX,dy=ev.clientY-startY;
+      // Clamped against rotateWrapper's own rendered box, not window.innerWidth/innerHeight -
+      // when rotated 90/270 that box is deliberately width/height-swapped from the raw viewport,
+      // and widgets are positioned relative to it (see the #rotateWrapper CSS comment), not the
+      // physical screen.
+      layout[key].x=clamp(orig.x+dx,layout[key].width,rotateWrapper.offsetWidth);
+      layout[key].y=clamp(orig.y+dy,layout[key].height,rotateWrapper.offsetHeight);
+      applyWidget(key);
+    }
+    function onUp(){
+      window.removeEventListener("pointermove",onMove);
+      window.removeEventListener("pointerup",onUp);
+      commitLayoutAsHome();
+    }
+    window.addEventListener("pointermove",onMove);
+    window.addEventListener("pointerup",onUp);
+  }
+
+  function startResize(e,key){
+    if(!editMode) return;
+    e.preventDefault();
+    ensureLayout();
+    const startX=e.clientX,startY=e.clientY;
+    const orig={...layout[key]};
+    function onMove(ev){
+      const dx=ev.clientX-startX,dy=ev.clientY-startY;
+      layout[key].width=Math.max(MIN_WIDTH,orig.width+dx);
+      layout[key].height=Math.max(MIN_HEIGHT,orig.height+dy);
+      applyWidget(key);
+    }
+    function onUp(){
+      window.removeEventListener("pointermove",onMove);
+      window.removeEventListener("pointerup",onUp);
+      commitLayoutAsHome();
+    }
+    window.addEventListener("pointermove",onMove);
+    window.addEventListener("pointerup",onUp);
+  }
+
+  widgetNumber.addEventListener("pointerdown",(e)=>startDrag(e,"number"));
+  widgetBar.addEventListener("pointerdown",(e)=>startDrag(e,"bar"));
+  handleNumber.addEventListener("pointerdown",(e)=>{e.stopPropagation();startResize(e,"number");});
+  handleBar.addEventListener("pointerdown",(e)=>{e.stopPropagation();startResize(e,"bar");});
+
+  // --- keep-awake (looping video + audible track, muted at the OS media-volume level) ---
+  // The Screen Wake Lock API is the "real" way to stop the OS from sleeping the display, but it
+  // only works over HTTPS, which this app deliberately doesn't require (see the manifest/fullscreen
+  // notes on portability). Empirically tested on real devices (both confirmed to fail otherwise):
+  //   - Chrome for Android: no video-based trick works at all, muted or not - this exemption has
+  //     been removed outright, not just tightened.
+  //   - Firefox for Android: DOES still exempt a tab from screen sleep, but only while a video with
+  //     a genuinely *unmuted* audio track is playing - a silent/muted video gets no exemption.
+  // So this video is deliberately NOT muted (video.muted stays false, unlike a typical background
+  // video) - that's what Firefox's heuristic actually keys off, confirmed by testing a muted visible
+  // video side-by-side, which did nothing. The audio itself must be silenced at the phone's OS media
+  // volume instead (a one-time manual step on the device, not something this page can control) -
+  // Firefox only checks whether the tab is *producing* audio, not whether it's actually audible.
+  // Net effect: this only works in Firefox, and only if the phone's media volume is turned all the
+  // way down - if that volume is ever turned back up, this tone becomes audible.
+  // Unmuted autoplay is blocked without a user gesture, so this typically won't start until the
+  // first tap on the page (see the capture-phase pointerdown listener above, which calls this
+  // directly) - after that it loops forever, so it only needs that one gesture. Also retried on
+  // "click" specifically (not just pointerdown): some browsers only treat a completed press+release
+  // as a strong enough gesture to unlock unmuted autoplay, so a bare pointerdown alone was taking
+  // several taps before one of them happened to satisfy the browser's own heuristic.
+  function ensureKeepAwakePlaying(){
+    keepAwakeVideo.muted=false;
+    keepAwakeVideo.play().catch(()=>{});
+  }
+  ensureKeepAwakePlaying();
+  document.addEventListener("click",ensureKeepAwakePlaying);
+  document.addEventListener("visibilitychange",()=>{if(!document.hidden) ensureKeepAwakePlaying();});
+
+  // --- manual rotate (pure CSS, not the Orientation Lock API) ---
+  // Many Android devices simply refuse to lock to reverse-portrait, silently normalizing it back to
+  // regular portrait regardless of what a page requests - confirmed on the actual target device,
+  // where the native-API approach could reach landscape both ways but never true upside-down
+  // portrait. Rotating our own rendered content instead guarantees all 4 states work on any device,
+  // since it doesn't depend on the OS agreeing to anything.
+  const ROTATE_KEY="kef_display_rotation";
+  const ROTATIONS=[0,90,180,270];
+  let rotationIndex=0;
+
+  function applyRotation(){
+    rotateWrapper.classList.remove("rot-90","rot-180","rot-270");
+    const deg=ROTATIONS[rotationIndex];
+    if(deg!==0) rotateWrapper.classList.add("rot-"+deg);
+    // #rotateWrapper's own offsetWidth/offsetHeight swap under 90/270 (see its CSS) - reconcile
+    // rescales the whole widget layout (position AND size, as a group) to fit that new space,
+    // instead of just refreshing the numeral's font in isolation.
+    reconcileLayoutToCurrentSize();
+  }
+
+  function loadRotation(){
+    try{
+      const raw=localStorage.getItem(ROTATE_KEY);
+      const idx=raw===null?0:ROTATIONS.indexOf(parseInt(raw));
+      rotationIndex=idx===-1?0:idx;
+    }catch(e){}
+    applyRotation();
+  }
+
+  function rotateUI(){
+    rotationIndex=(rotationIndex+1)%ROTATIONS.length;
+    applyRotation();
+    try{localStorage.setItem(ROTATE_KEY,ROTATIONS[rotationIndex]);}catch(e){}
+  }
+  rotateBtn.addEventListener("click",rotateUI);
+
+  // --- fullscreen (cross-platform) + matching the phone's actual physical orientation ---
+  // Fullscreen itself doesn't dictate orientation, but browsers commonly apply their own default
+  // (often landscape) unless the page explicitly locks orientation itself - screen.orientation.lock()
+  // only works while the document is fullscreen (browsers restrict it to that, unrelated to any
+  // choice of ours). This is separate from the manual rotate above: this only fights the browser's
+  // own unwanted auto-rotate default, it never tries to reach a state the OS won't allow.
+  const canLockOrientation=!!(screen.orientation&&screen.orientation.lock);
+
+  function lockToOrientation(type){
+    if(!canLockOrientation) return;
+    screen.orientation.lock(type).catch(()=>{});
+  }
+
+  // Read BEFORE requesting fullscreen, not after - some browsers auto-rotate to landscape as part
+  // of entering fullscreen itself, so screen.orientation.type may already reflect that unwanted
+  // rotation by the time any post-request callback runs.
+  let pendingOrientation=null;
+
+  const canFullscreen=!!document.documentElement.requestFullscreen;
+  if(canFullscreen){
+    fullscreenBtn.addEventListener("click",()=>{
+      if(document.fullscreenElement) document.exitFullscreen();
+      else{
+        pendingOrientation=screen.orientation.type;
+        document.documentElement.requestFullscreen().catch(()=>{});
+      }
+    });
+    const ENTER_ICON='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V5a1 1 0 0 1 1-1h4"/><path d="M15 4h4a1 1 0 0 1 1 1v4"/><path d="M20 15v4a1 1 0 0 1-1 1h-4"/><path d="M9 20H5a1 1 0 0 1-1-1v-4"/></svg>';
+    const EXIT_ICON='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 4H5a1 1 0 0 0-1 1v4"/><path d="M20 9V5a1 1 0 0 0-1-1h-4"/><path d="M4 15v4a1 1 0 0 0 1 1h4"/><path d="M15 20h4a1 1 0 0 0 1-1v-4"/></svg>';
+    document.addEventListener("fullscreenchange",()=>{
+      const inFullscreen=!!document.fullscreenElement;
+      fullscreenBtn.innerHTML=inFullscreen?EXIT_ICON:ENTER_ICON;
+      rotateBtn.hidden=!inFullscreen;
+      if(inFullscreen&&pendingOrientation){
+        const target=pendingOrientation;
+        pendingOrientation=null;
+        // Locking immediately here was flashing landscape-then-back-to-portrait: the browser's own
+        // auto-rotate sometimes happens slightly AFTER fullscreenchange fires, so an immediate lock
+        // was getting overridden a moment later, then only corrected by (previously) a blind delay.
+        // Instead, wait for the browser's own orientation "change" event (its unwanted auto-rotate,
+        // if any) and correct right after THAT actually happens - if the browser never auto-rotates
+        // at all, the timeout fallback still asserts the correct orientation regardless.
+        let corrected=false;
+        function onOrientationChange(){
+          if(corrected) return;
+          corrected=true;
+          screen.orientation.removeEventListener("change",onOrientationChange);
+          lockToOrientation(target);
+        }
+        if(canLockOrientation) screen.orientation.addEventListener("change",onOrientationChange);
+        setTimeout(()=>{
+          if(corrected) return;
+          corrected=true;
+          if(canLockOrientation) screen.orientation.removeEventListener("change",onOrientationChange);
+          lockToOrientation(target);
+        },400);
+      }
+    });
+  }else{
+    // iPhone Safari has never supported the Fullscreen API for ordinary elements (only iPad Safari
+    // does) - the only real "fullscreen" there is launching from a Home Screen icon, which strips
+    // Safari's chrome. navigator.standalone is iOS-specific and true once launched that way.
+    fullscreenBtn.hidden=true;
+    if(!window.navigator.standalone) iosHint.hidden=false;
+  }
+
+  // --- init ---
+  loadSettings();
+  updatePresetActiveState();
+  alwaysOnCheckbox.checked=settings.alwaysOn;
+
+  // Deferred one frame so the CSS percentage bootstrap has actually rendered before we read
+  // geometry from it (offsetWidth/Height are 0 if read before the viewport is truly established -
+  // see the note on rectOf/captureCurrentLayout). loadRotation (and the applyRotation ->
+  // reconcileLayoutToCurrentSize chain it triggers) runs only after layoutHome exists, since that
+  // chain now depends on it.
+  requestAnimationFrame(()=>{
+    layoutHome=loadLayoutHome()||{
+      layout:captureCurrentLayout(),
+      canvasSize:{width:rotateWrapper.offsetWidth,height:rotateWrapper.offsetHeight}
+    };
+    loadRotation(); // sets the rotation class, then reconciles layout to the current (possibly rotated) canvas size - covers "saved on a differently-sized screen" too
+  });
+
+  window.addEventListener("resize",reconcileLayoutToCurrentSize); // e.g. mobile browser chrome show/hide changing the available space
+
+  fetchVolume();
+  setInterval(fetchVolume,AUTO_REFRESH_MS);
+  setInterval(checkDim,1000);
+</script>
+</body>
+</html>

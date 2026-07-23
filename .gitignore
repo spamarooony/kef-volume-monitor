@@ -3,3 +3,4 @@ kef-env/
 __pycache__/
 *.pyc
 .DS_Store
+kef_state.json

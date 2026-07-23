@@ -1,0 +1,8 @@
+{
+  "name": "KEF Volume Display",
+  "short_name": "KEF Volume",
+  "start_url": "/display",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000"
+}

@@ -17,11 +17,14 @@ Browser  ←──── HTTP (port 8765) ────→  kef_server.py  ←─
 
 **2. `kef_server.py`** (a small Python Flask server running on an always-on Ubuntu 24.04 machine as a `systemd` service). It:
 - Runs a single background thread that polls the speakers every 3 seconds (opening a fresh raw TCP `socket`, reading volume/mute, and closing the connection immediately), and caches the result in memory. Browser requests to `/volume` just read that cache; they never touch the speaker directly. This keeps the connection to the speaker's control port brief and infrequent regardless of how many browser tabs are watching, since the speaker's TCP stack can't handle many simultaneous connections (confirmed: it visibly conflicts with the official KEF Control app if held open too long or hit too often).
+- Persists the last-known volume/mute state to `kef_state.json` on disk (written on every real change, loaded on startup), so a service restart doesn't lose it the way the in-memory cache alone would. Only speaker sleep did before.
 - Logs quietly: only startup and online↔offline transitions are logged, not every poll or every browser request. Routine operation produces no log spam even running 24/7.
 - Exposes `/volume` (GET, cached read) and `/volume/set` (POST, sends the change to the speaker immediately/synchronously, not gated by the poll loop).
-- Serves the HTML page itself at `/`, so the page and the server live on the same origin and avoid browser CORS/file:// restrictions.
+- Serves the HTML pages themselves at `/` and `/display`, plus `/manifest.json`, so everything lives on the same origin and avoids browser CORS/file:// restrictions.
 
 **3. `kef_volume.html`** (a single-page dashboard styled as a dark, minimal readout with a large volume number, a progress bar, a slider, and +/− buttons, stepping by 1). It polls `/volume` every 3 seconds and posts to `/volume/set` when the user adjusts volume.
+
+**4. `kef_display.html`** (served at `/display`), a read-only, full-screen volume readout meant for a phone mounted near the TV, mimicking a TV's own volume OSD: it shows the current volume large enough to read from across the room, fades to black after a short idle timeout, and wakes instantly on tap or on a genuine volume change. Layout (position/size of the numeral and bar) is drag/resize-editable and persists, rescaling as one group whenever the phone is rotated. See [Known Limitations](#known-limitations) for the screen-wake-lock caveat.
 
 ## Setup
 
@@ -70,12 +73,15 @@ According to KEF's own [firmware release notes](https://assets.kef.com/pdf_doc/l
 
 As a result, the dashboard can only ever report "offline" (last known volume shown dimmed, controls disabled) while an affected pair is off. It has no way to bring them back online itself.
 
+**`kef_display.html`'s screen-wake-lock hack only works in Firefox.** The real Screen Wake Lock API needs HTTPS, which this project deliberately doesn't require (see the deploy workflow above, it's plain HTTP by design). Several non-HTTPS workarounds were tested directly on the target device: Chrome for Android has no working technique at all (the old "keep a video playing" trick seems to have been removed); Firefox for Android still honors it, but only for a video with a genuinely *unmuted* soundtrack. Silent or muted video gets no exemption. The page plays such a video to satisfy that requirement; whether it stays awake depends only on the video being unmuted at the page level, not on the phone's actual output volume. Firefox's check is "is this tab producing audio," not "is that audio audible." In other words, turn media volume down to not hear the tone. The screen will stay awake either way. Net effect: the mounted phone must run Firefox for the screen to stay awake indefinitely; on Chrome, the phone will follow its own OS screen-timeout and need a tap/unlock to wake, same as normal use. Tested only on Android with Firefox and Chrome. I don't have an iPhone so I can't speak to how it behaved there.
+
 ## Final Result
 - A live, auto-refreshing volume readout accessible from any device on the home network at `http://<server-ip>:8765`
 - Slider and +/− buttons to adjust volume directly from the page, applied to the speaker immediately
+- A second, read-only display page (`/display`) for a phone mounted near the TV, mimicking a TV's own volume OSD - see above
 - Runs as a `systemd` service (`kef-server.service`) so it starts automatically on boot and restarts if it ever crashes
 - Source of truth is a private GitHub repo; the server pulls updates via a read-only deploy key rather than manual file copying
 
 ## Possible Future Directions Discussed
 - Running the same dashboard on a small WiFi-connected ESP32 AMOLED touch display, talking to the speakers directly over TCP with no Ubuntu server involved
-- Running the whole stack (server + browser) locally on a repurposed old Android phone via Termux, as a fully self-contained wall-mounted display
+- Running the whole stack (server + browser) locally on a repurposed old Android phone via Termux, as a fully self-contained wall-mounted display (the current `/display` page still relies on the Ubuntu server and a regular mobile browser, not a standalone on-phone stack)
