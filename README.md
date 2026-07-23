@@ -38,7 +38,31 @@ kef-env/bin/python kef_server.py --ip 192.168.1.XXX   # your speaker's IP
 
 Then open `http://<server-ip>:8765/` in a browser on the same network.
 
-To run it persistently, install it as a systemd service (`Restart=always`) so it survives reboots and crashes. See `kef-server.service` on the deployment machine for the unit definition used in production.
+To run it persistently, install it as a systemd service so it starts on boot and restarts if it ever crashes:
+
+```ini
+# /etc/systemd/system/kef-server.service
+[Unit]
+Description=KEF volume bridge server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<user>
+WorkingDirectory=/path/to/kef-volume-monitor
+ExecStart=/path/to/kef-volume-monitor/kef-env/bin/python kef_server.py --ip 192.168.1.XXX
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now kef-server.service
+```
 
 ## Repo → server workflow
 
