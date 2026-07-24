@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Bebas+Neue&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg:#0c0c0e;--surface:#141417;--border:#2a2a30;--accent:#5b82e0;
+    --bg:#0c0c0e;--surface:#141417;--border:#2a2a30;--accent:#5b82e0;--accent-rgb:91,130,224;
     --text:#e8e4dc;--muted:#82838f;--red:#c0392b;--green:#2ecc71;--danger-zone:#7a2e3d;
     --safe-pct:45%; /* must match SAFE_MAX in the script below */
   }
@@ -46,7 +46,8 @@
   .vol-btn:disabled,input[type=range]:disabled,.safety-toggle input[type=checkbox]:disabled{
     opacity:0.35;cursor:not-allowed}
   .vol-btn:disabled{border-color:var(--border);color:var(--muted)}
-  .vol-btn:focus-visible,.refresh-btn:focus-visible,.safety-toggle input[type=checkbox]:focus-visible{
+  .vol-btn:focus-visible,.refresh-btn:focus-visible,.settings-btn:focus-visible,
+  .safety-toggle input[type=checkbox]:focus-visible{
     outline:2px solid var(--accent);outline-offset:2px}
   .slider-track{position:relative;flex:1;height:8px;border-radius:4px;overflow:visible;
     background:linear-gradient(to right,var(--border) 0%,var(--border) var(--safe-pct),var(--danger-zone) var(--safe-pct),var(--danger-zone) 100%)}
@@ -54,18 +55,21 @@
     height:8px;width:var(--safe-pct);outline:none;cursor:pointer;border-radius:4px;
     background:transparent;transition:opacity 0.3s}
   input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+  /* was a hardcoded rgba(91,130,224,...) - now derived from --accent-rgb so the thumb's glassy
+     tint follows whatever accent color is picked, instead of staying blue forever */
   input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;box-sizing:border-box;
-    width:24px;height:24px;border-radius:50%;background:rgba(91,130,224,0.28);cursor:pointer;
+    width:24px;height:24px;border-radius:50%;background:rgba(var(--accent-rgb),0.28);cursor:pointer;
     backdrop-filter:blur(6px) saturate(160%) brightness(225%);-webkit-backdrop-filter:blur(6px) saturate(160%) brightness(225%);
     border:3px solid var(--surface);box-shadow:0 0 0 1px var(--border);transition:transform 0.15s}
   input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2)}
   input[type=range]::-moz-range-thumb{box-sizing:border-box;width:24px;height:24px;border-radius:50%;
-    background:rgba(91,130,224,0.28);cursor:pointer;
+    background:rgba(var(--accent-rgb),0.28);cursor:pointer;
     backdrop-filter:blur(6px) saturate(160%) brightness(225%);-webkit-backdrop-filter:blur(6px) saturate(160%) brightness(225%);
     border:3px solid var(--surface);box-shadow:0 0 0 1px var(--border)}
   input[type=range]::-moz-range-track{background:transparent}
   .meta{display:flex;justify-content:space-between;align-items:center;font-size:11px;
     letter-spacing:0.12em;color:var(--muted);border-top:1px solid var(--border);padding-top:20px}
+  .meta-right{display:flex;align-items:center;gap:10px}
   .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);
     margin-right:8px;transition:background 0.3s}
   .dot.online{background:var(--green);box-shadow:0 0 6px var(--green)}
@@ -79,6 +83,70 @@
     font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.15em;padding:5px 12px;
     cursor:pointer;border-radius:4px;transition:border-color 0.2s,color 0.2s}
   .refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .settings-btn{background:none;border:1px solid var(--border);color:var(--muted);
+    width:26px;height:26px;border-radius:50%;font-size:13px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    transition:border-color 0.2s,color 0.2s}
+  .settings-btn:hover{border-color:var(--accent);color:var(--accent)}
+  /* svg is inline by default and carries a few px of baseline gap even inside a flex-centered
+     parent - block display removes that so the icon actually lands in the button's true center */
+  .settings-btn svg{display:block}
+  /* position:fixed + centered, not anchored to the gear button - a popover anchored to the
+     card can render fully off-screen on short viewports (landscape phones, small windows)
+     with no way to scroll to it. Centering in the viewport guarantees it's always reachable
+     regardless of screen size or orientation. */
+  .settings-panel{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,0.55);
+    display:flex;align-items:center;justify-content:center;padding:20px}
+  .settings-panel[hidden]{display:none}
+  /* equal padding on all 4 sides, and a width that's EXACTLY content-width + padding (206px of
+     circles: 6 x 26px swatches + 5 x 10px gaps, plus 22px on each side) - not just "wide enough".
+     Sizing it any wider would leave slack after the last swatch that the hex field's flex:1
+     would then stretch into, pushing its right edge past the swatch row's. */
+  .settings-box{background:var(--surface);border:1px solid var(--border);border-radius:6px;
+    padding:22px;width:min(250px,100%);max-height:80vh;overflow-y:auto;
+    box-shadow:0 8px 24px rgba(0,0,0,0.4)}
+  .panel-label{display:block;font-size:10px;letter-spacing:0.12em;color:var(--muted);margin-bottom:12px}
+  .swatch-group{display:flex;gap:10px}
+  .swatch{width:26px;height:26px;border-radius:50%;border:none;cursor:pointer;padding:0;
+    box-shadow:0 0 0 2px transparent;transition:box-shadow 0.15s}
+  .swatch:hover{box-shadow:0 0 0 2px var(--border)}
+  .swatch.active{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--text)}
+  /* second row: the custom-color swatch/picker plus a hex text field, side by side */
+  .custom-row{display:flex;align-items:center;gap:12px;margin-top:16px}
+  /* flex-start, not center - the "CUSTOM" caption below is wider than the 26px circle, and
+     center-aligning against it would shift the circle itself right of the row's left edge,
+     throwing off its alignment with the leftmost preset swatch above */
+  .custom-swatch-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:5px;flex-shrink:0}
+  .custom-swatch-box{position:relative;width:26px;height:26px}
+  /* the VISIBLE circle - a plain div, not the native color input. Mobile browsers routinely give
+     input[type=color] its own touch-target chrome (minimum size, platform swatch rendering) that
+     ignores author CSS entirely, so matching the preset swatches' exact 26px size can't be trusted
+     to the native control - only to an element we fully control ourselves. No border (a solid
+     inset border would eat into the visible circle and make its color patch read as smaller than
+     the presets', even at an identical 26px footprint) - the pencil icon + "CUSTOM" caption below
+     are what mark this one as different, same as the presets' fill-edge-to-edge look otherwise. */
+  .custom-swatch-fill{position:absolute;inset:0;width:100%;height:100%;border-radius:50%;
+    box-shadow:0 0 0 2px transparent;transition:box-shadow 0.15s;pointer-events:none}
+  .custom-swatch-box:hover .custom-swatch-fill{box-shadow:0 0 0 2px var(--border)}
+  .custom-swatch-fill.active{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--text)}
+  /* text-shadow instead of mix-blend-mode - stays legible against literally any picked fill
+     color without depending on blend-mode support inside a color-swatch's own rendering layer */
+  .custom-swatch-icon{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:12px;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;pointer-events:none}
+  /* the actual native control - fully transparent and stretched over the box so it stays tappable/
+     clickable (opening the real OS picker) without ever being visually responsible for the circle's
+     size or appearance, whatever native chrome a given browser/platform tries to draw around it */
+  .custom-swatch-input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;
+    border:none;padding:0}
+  .custom-swatch-label{font-size:8px;letter-spacing:0.1em;color:var(--muted)}
+  /* the fallback path for hardware/browsers whose native color picker has no way to type a hex
+     value at all (e.g. Firefox Android just opens a fixed swatch grid) - always visible, not
+     hidden behind detecting that case, so it works identically everywhere */
+  .hex-input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);
+    color:var(--text);font-family:'DM Mono',monospace;font-size:13px;letter-spacing:0.03em;
+    padding:8px 10px;border-radius:4px}
+  .hex-input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .hex-input.invalid{border-color:var(--red);color:var(--red)}
   .safety-toggle{display:flex;align-items:center;gap:8px;font-size:10px;letter-spacing:0.1em;
     color:var(--muted);margin-bottom:24px;cursor:pointer;user-select:none}
   .safety-toggle:has(input:disabled){cursor:not-allowed}
@@ -119,9 +187,50 @@
   </label>
   <div class="meta">
     <div><span class="dot loading" id="dot"></span><span id="statusText">CONNECTING…</span></div>
-    <div>
+    <div class="meta-right">
       <span class="mute-badge" id="muteBadge">MUTED</span>
       <button class="refresh-btn" onclick="fetchVolume()">↺ REFRESH</button>
+      <button class="settings-btn" id="settingsBtn" aria-label="Settings">
+        <!-- thin stroke outline, matching the visual weight of every other icon/border in this
+             UI (kef_display's rotate/fullscreen icons, the 1px card borders) - a solid filled gear
+             read as noticeably "heavier" than everything else on the page, even once its
+             proportions were tuned. Path traces both edges of each of the 8 teeth (computed, not
+             hand-fit) plus the root fillet between them, so the outline itself is what reads as a
+             gear - no filled mass needed to make the shape legible. -->
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+          stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+          <path d="M 18.82 10.43 L 21.19 10.55 L 21.19 13.45 L 18.82 13.57 A 7 7 0 0 1 17.94 15.71 L 19.52 17.47 L 17.47 19.52 L 15.71 17.94 A 7 7 0 0 1 13.57 18.82 L 13.45 21.19 L 10.55 21.19 L 10.43 18.82 A 7 7 0 0 1 8.29 17.94 L 6.53 19.52 L 4.48 17.47 L 6.06 15.71 A 7 7 0 0 1 5.18 13.57 L 2.81 13.45 L 2.81 10.55 L 5.18 10.43 A 7 7 0 0 1 6.06 8.29 L 4.48 6.53 L 6.53 4.48 L 8.29 6.06 A 7 7 0 0 1 10.43 5.18 L 10.55 2.81 L 13.45 2.81 L 13.57 5.18 A 7 7 0 0 1 15.71 6.06 L 17.47 4.48 L 19.52 6.53 L 17.94 8.29 A 7 7 0 0 1 18.82 10.43 Z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+  <div class="settings-panel" id="settingsPanel" hidden>
+    <div class="settings-box">
+      <span class="panel-label">ACCENT COLOR</span>
+      <div class="swatch-group" id="swatchGroup">
+        <button class="swatch" data-hex="#5b82e0" style="background:#5b82e0" aria-label="Blue accent"></button>
+        <button class="swatch" data-hex="#4fc3a1" style="background:#4fc3a1" aria-label="Teal accent"></button>
+        <button class="swatch" data-hex="#9b6bdb" style="background:#9b6bdb" aria-label="Purple accent"></button>
+        <button class="swatch" data-hex="#e0a75b" style="background:#e0a75b" aria-label="Amber accent"></button>
+        <button class="swatch" data-hex="#e05b6e" style="background:#e05b6e" aria-label="Coral accent"></button>
+        <button class="swatch" data-hex="#4fb86a" style="background:#4fb86a" aria-label="Green accent"></button>
+      </div>
+      <div class="custom-row">
+        <div class="custom-swatch-wrap">
+          <div class="custom-swatch-box">
+            <div class="custom-swatch-fill" id="customSwatchFill"></div>
+            <span class="custom-swatch-icon" aria-hidden="true">&#9998;</span>
+            <input type="color" class="custom-swatch-input" id="customColor" value="#5b82e0"
+              aria-label="Custom accent color" title="Custom color">
+          </div>
+          <span class="custom-swatch-label">CUSTOM</span>
+        </div>
+        <!-- Firefox Android's native color picker opens a fixed swatch grid with no way to type
+             an arbitrary hex value, so this text field is the only truly custom-color path there -->
+        <input type="text" class="hex-input" id="hexInput" value="#5b82e0" maxlength="7"
+          aria-label="Accent color hex code" spellcheck="false" autocapitalize="off" autocomplete="off">
+      </div>
     </div>
   </div>
   <div class="last-updated" id="lastUpdated"></div>
@@ -143,6 +252,8 @@
   const btnDown=document.getElementById("btnDown");
   const btnUp=document.getElementById("btnUp");
   const unlockCheckbox=document.getElementById("unlockCheckbox");
+  const settingsBtn=document.getElementById("settingsBtn");
+  const settingsPanel=document.getElementById("settingsPanel");
 
   const SAFE_MAX=45;
   const FULL_MAX=100;
@@ -355,6 +466,111 @@
       e.preventDefault();
       stepVolume(-1);
     }
+  });
+
+  // --- settings panel / accent color ---
+  const ACCENT_KEY="kef_volume_accent";
+  const ACCENT_PRESETS=["#5b82e0","#4fc3a1","#9b6bdb","#e0a75b","#e05b6e","#4fb86a"];
+  const HEX_RE=/^#[0-9a-f]{6}$/i;
+  const customColorInput=document.getElementById("customColor");
+  const customSwatchFill=document.getElementById("customSwatchFill");
+  const hexInput=document.getElementById("hexInput");
+  let currentAccent=ACCENT_PRESETS[0];
+
+  function hexToRgb(hex){
+    const n=parseInt(hex.slice(1),16);
+    return `${(n>>16)&255},${(n>>8)&255},${n&255}`;
+  }
+  // Accepts "#rgb" shorthand or a bare "rgb"/"rrggbb" (no leading #) too, since that's the
+  // natural thing to type into a plain text field - only setAccent's caller needs to deal with
+  // the strict 6-digit form.
+  function normalizeHex(raw){
+    let v=raw.trim().toLowerCase();
+    if(!v.startsWith("#")) v="#"+v;
+    if(/^#[0-9a-f]{3}$/.test(v)) v="#"+v.slice(1).split("").map(c=>c+c).join("");
+    return v;
+  }
+  function setAccent(hex){
+    hex=hex.toLowerCase();
+    currentAccent=hex;
+    document.documentElement.style.setProperty("--accent",hex);
+    document.documentElement.style.setProperty("--accent-rgb",hexToRgb(hex));
+    const isPreset=ACCENT_PRESETS.includes(hex);
+    document.querySelectorAll(".swatch").forEach(s=>s.classList.toggle("active",s.dataset.hex===hex));
+    // keep the picker synced to the current accent even when a preset was clicked, so it always
+    // shows "what you'd start customizing from" - but only ring it as active when the color is
+    // genuinely custom, otherwise it'd show two rings at once for preset colors. The native input's
+    // own .value is kept in sync too (invisible, but it's still what the OS picker opens showing).
+    customColorInput.value=hex;
+    customSwatchFill.style.background=hex;
+    customSwatchFill.classList.toggle("active",!isPreset);
+    // never stomp the hex field while the user is actively typing in it - this fires mid-keystroke
+    // (see hexInput's own "input" listener below) and reassigning .value there would reset their
+    // cursor to the end on every character
+    if(document.activeElement!==hexInput) hexInput.value=hex;
+    hexInput.classList.remove("invalid");
+    // the fill gradient is generated JS-side (see sliderGradient) rather than pure CSS, so it needs
+    // an explicit re-render to pick up the new --accent instead of updating on its own
+    if(!dragging) slider.style.background=sliderGradient(parseInt(volNum.textContent)||0,volNum.classList.contains("muted"));
+  }
+  document.querySelectorAll(".swatch").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      setAccent(btn.dataset.hex);
+      localStorage.setItem(ACCENT_KEY,btn.dataset.hex);
+    });
+  });
+  // "input" (not "change") fires continuously while the native picker is open, matching the
+  // instant feedback a preset click gives instead of only updating after the picker is dismissed
+  customColorInput.addEventListener("input",()=>{
+    setAccent(customColorInput.value);
+    localStorage.setItem(ACCENT_KEY,customColorInput.value);
+  });
+  // The one thing the swatches/native picker can't cover: Firefox on Android just opens a fixed
+  // preset grid with no field to type a hex value at all, so this text input is the only place a
+  // truly arbitrary color can be entered there. Applies live as soon as what's typed becomes a
+  // valid hex color, rather than waiting for blur/Enter.
+  hexInput.addEventListener("input",()=>{
+    const v=normalizeHex(hexInput.value);
+    if(HEX_RE.test(v)){
+      setAccent(v);
+      localStorage.setItem(ACCENT_KEY,v);
+    } else {
+      hexInput.classList.add("invalid");
+    }
+  });
+  hexInput.addEventListener("keydown",(e)=>{
+    if(e.key==="Enter"){ e.preventDefault(); hexInput.blur(); }
+  });
+  // Leaving the field on an incomplete/invalid value (e.g. "#5b8") snaps it back to whatever's
+  // actually active, instead of leaving a dangling typo behind.
+  hexInput.addEventListener("blur",()=>{
+    hexInput.value=currentAccent;
+    hexInput.classList.remove("invalid");
+  });
+  // Runs synchronously at script load (DOM already parsed, since this <script> is at the end of
+  // <body>) so a saved accent applies before first paint - no flash of the default blue.
+  (function loadAccent(){
+    const saved=localStorage.getItem(ACCENT_KEY);
+    setAccent(saved&&HEX_RE.test(saved)?saved:ACCENT_PRESETS[0]);
+  })();
+
+  let panelOpen=false;
+  function togglePanel(){
+    panelOpen=!panelOpen;
+    settingsPanel.hidden=!panelOpen;
+  }
+  function closePanel(){
+    panelOpen=false;
+    settingsPanel.hidden=true;
+  }
+  settingsBtn.addEventListener("click",togglePanel);
+  // settingsPanel is now the full-screen backdrop itself (see .settings-panel CSS) - only close
+  // when the click lands on the backdrop directly, not when it bubbles up from .settings-box
+  settingsPanel.addEventListener("click",(e)=>{
+    if(e.target===settingsPanel) closePanel();
+  });
+  document.addEventListener("keydown",(e)=>{
+    if(e.key==="Escape"&&panelOpen) closePanel();
   });
 
   fetchVolume();
