@@ -9,8 +9,8 @@ The gen 1 LS50 Wireless has no official HTTP or REST API. Unlike the gen 2 model
 ## Architecture
 
 ```
-Browser  ←─── HTTP (port 8765) ───→  kef_server.py  ←─── TCP (port 50001) ───→  KEF Speakers
-(any device)                         (Ubuntu machine)                           (<speaker-ip>)
+Browser  ←── HTTP (port 8765) ──→  kef_server.py  ←── TCP (port 50001) ──→  KEF Speakers
+(any device)                       (Ubuntu machine)                         (<speaker-ip>)
 ```
 
 **1. The speakers** listen on TCP port 50001. A 3-byte request `[0x47, 0x25, 0x80]` ("G", "%", 128) returns a 4-byte response whose 4th byte encodes volume (0–100) and mute state (top bit). Setting volume sends `[0x53, 0x25, 0x81, vol]`.
