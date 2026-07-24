@@ -19,8 +19,15 @@
   body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(
     0deg,transparent,transparent 2px,rgba(255,255,255,0.012) 2px,rgba(255,255,255,0.012) 4px);
     pointer-events:none;z-index:0}
+  /* ambient glow behind the card, tinted from --accent-rgb so it re-tints live with the accent
+     picker (see setAccent()) instead of staying blue - fills the dead space around a small
+     centered card with something that reads as deliberate ("a component glowing in a dark room")
+     rather than empty chrome */
+  body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+    background:radial-gradient(ellipse 640px 520px at 50% 50%,rgba(var(--accent-rgb),0.14),
+    transparent 70%)}
   .card{position:relative;z-index:1;background:var(--surface);border:1px solid var(--border);
-    width:min(420px,92vw);padding:48px 44px 40px}
+    border-radius:8px;width:min(420px,92vw);padding:48px 44px 40px}
   .brand{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:0.35em;
     color:var(--muted);margin-bottom:6px}
   .model{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:0.08em;
