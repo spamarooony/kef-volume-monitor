@@ -24,9 +24,13 @@
   .brand{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:0.35em;
     color:var(--muted);margin-bottom:6px}
   .model{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:0.08em;
-    color:var(--text);line-height:1;margin-bottom:40px}
+    color:var(--text);line-height:1;margin-bottom:35px}
   .model span{color:var(--accent)}
-  .vol-wrap{display:flex;align-items:baseline;gap:10px;margin-bottom:16px}
+  /* margin-bottom is larger than .model's to counteract Bebas Neue's own metrics: at this
+     font-size the "32" glyph's ink sits ~13px closer to the top of its line box than the
+     bottom (nearly no descender), so without this offset the number reads as sitting low
+     between the title and the slider even though the boxes around it are evenly spaced. */
+  .vol-wrap{display:flex;align-items:baseline;gap:10px;margin-bottom:22px}
   .vol-number{font-family:'Bebas Neue',sans-serif;font-size:clamp(80px,22vw,120px);
     line-height:1;color:var(--accent);letter-spacing:-0.02em;transition:color 0.3s}
   .vol-number.muted{color:var(--muted)}
