@@ -1,7 +1,7 @@
 # KEF LS50 Wireless (Gen 1) Web-Based Volume Monitor
 
-## Goal
-Check and change the volume of first-generation KEF LS50 Wireless speakers from a website, without a remote in hand.
+## Intro + Goal
+This idea started with the occasional need to see the speaker's volume, without having to pick up the phone to check the KEF Control app. The goal: check and change the volume of first-generation KEF LS50 Wireless speakers from a website, without a remote in hand. While working out the infrastructure and architecture for that, I built two files: `kef_volume.html` and `kef_display.html`. Both can be opened on any device on the network, with `kef_display.html` for monitoring the volume and `kef_volume.html` for controlling it. They can be loaded on an old phone and used as a dedicated volume monitor/controller.
 
 ## The Challenge
 The gen 1 LS50 Wireless has no official HTTP or REST API. Unlike the gen 2 models, it only accepts raw byte commands over a plain TCP socket on port 50001 (a protocol KEF never documented publicly, reverse-engineered instead by the community behind [`aiokef`](https://github.com/basnijholt/aiokef)). This meant a browser (which can only speak HTTP) couldn't talk to the speakers directly; something in between was needed to translate.
@@ -104,7 +104,7 @@ As a result, the dashboard can only ever report "offline" (last known volume sho
 - Slider and +/− buttons to adjust volume directly from the page, applied to the speaker immediately
 - A second, read-only display page (`/display`) for a phone mounted near the TV, mimicking a TV's own volume OSD - see above
 - Runs as a `systemd` service (`kef-server.service`) so it starts automatically on boot and restarts if it ever crashes
-- Source of truth is a private GitHub repo; the server pulls updates via a read-only deploy key rather than manual file copying
+- Source of truth is this GitHub repo; the server pulls updates rather than manual file copying
 
 ## Possible Future Directions Discussed
 - Running the same dashboard on a small WiFi-connected ESP32 AMOLED touch display, talking to the speakers directly over TCP with no Ubuntu server involved. If that pans out, look into publishing it on [APP PIXELS](https://www.app-pixels.com/), an app store/catalog for Waveshare ESP32-S3 AMOLED devices
