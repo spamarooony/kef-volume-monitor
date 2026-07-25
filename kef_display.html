@@ -298,6 +298,9 @@
   const barFill=document.getElementById("barFill");
   const widgetNumber=document.getElementById("widgetNumber");
   const widgetBar=document.getElementById("widgetBar");
+  // Off-DOM canvas used purely for its 2D context's measureText() - the one API that reports a
+  // font's true rendered ink extent (actualBoundingBox*) rather than a font-metrics box.
+  const measureCtx=document.createElement("canvas").getContext("2d");
   const handleNumber=document.getElementById("handleNumber");
   const handleBar=document.getElementById("handleBar");
   const handleBarOrient=document.getElementById("handleBarOrient");
@@ -382,41 +385,81 @@
     // font-size, so one measurement is enough to solve exactly for the largest uniform size that
     // fits both the box's width and height - the trial size itself is arbitrary, it cancels out.
     //
-    // volNum is an SVG <text> element specifically so getBBox() is available: it's the one
-    // measurement that's actually spec-defined as the tight geometric bounds of the rendered
-    // glyphs. Two other approaches were tried and both turned out to measure the wrong thing -
-    // volNum.offsetHeight (if it were a div) is the CSS line box, tied to line-height/font-size,
-    // not to how tall the glyphs actually are; Range().getBoundingClientRect() looked plausible
-    // but empirically reports something else again (on one box its "ink" height came back at over
-    // 1.6x the box's own height). Both left the numeral either not filling its box, or filling it
-    // asymmetrically and overflowing one edge. getBBox() is the only one that's actually reliable.
+    // Measured via Canvas 2D's measureText(), not SVG getBBox() (an earlier version of this
+    // function used getBBox(), on the assumption - stated in its own comment - that it returns the
+    // tight ink bounds of the rendered glyphs. Live-tested in Chrome and confirmed false: it
+    // returns a box based on the font's ascent/descent metrics, which for a font with any
+    // descender glyphs is taller than digits (which have none) actually reach. Measured a live
+    // 370.833px numeral where getBBox() reported height=445px exactly matching the widget box - a
+    // seemingly tight fit - while the actual rendered ink, measured by rasterizing the same text/
+    // font/size to a canvas and scanning for non-black pixels, was only 268px. That gap silently
+    // shrunk the digits to ~60% of the box on every fit, growing in step with font-size, hence
+    // worse-looking on larger boxes.) measureText()'s actualBoundingBox{Left,Right,Ascent,Descent}
+    // are explicitly defined by spec as the true rendered ink extent relative to the text's
+    // alignment point/baseline, and that alignment point is the same reference SVG <text> uses for
+    // its own x/y (default text-anchor="start", alphabetic baseline) - so the offsets below can
+    // position volNum directly via x/y with no separate bbox-then-translate step.
     const boxW=widgetNumber.offsetWidth,boxH=widgetNumber.offsetHeight;
     const trial=100;
     volNum.removeAttribute("transform");
-    volNum.setAttribute("x",0);
-    volNum.setAttribute("y",0);
+    const cs=getComputedStyle(volNum);
+    // letter-spacing is authored in em, so its resolved px value (read off cs) depends on whatever
+    // font-size volNum actually has at the moment cs is read - getComputedStyle()'s return value is
+    // live, but only correct if we set the font-size we're about to measure at FIRST. Setting the
+    // trial size before reading cs.letterSpacing here (rather than after, as an earlier version of
+    // this function did) is what makes that resolve correctly instead of carrying over whatever
+    // font-size volNum was left at by the previous call - that staleness was scaling the trial
+    // measurement's letter-spacing wrong, which skewed the width/height ratio just enough to
+    // sometimes flip which axis got chosen as the binding constraint, letting digits overflow the
+    // box on the other axis. Confirmed live in Chrome: instrumenting measureText showed the same
+    // 400x528 box alternately resolving width-bound (correct) or height-bound (overflowing width)
+    // purely depending on what the previous call had left volNum's rendered font-size at.
     volNum.style.fontSize=trial+"px";
-    // Width comes from the actual displayed text's own bbox - correctly reflects however many
-    // digits are showing (e.g. "1" vs "88") and this font's letter-spacing.
-    const textW=volNum.getBBox().width;
+    measureCtx.font=`${trial}px ${cs.fontFamily}`;
+    if("letterSpacing" in measureCtx) measureCtx.letterSpacing=cs.letterSpacing;
+    // Width comes from the actual displayed text - correctly reflects however many digits are
+    // showing (e.g. "1" vs "88") and this font's letter-spacing.
+    const displayedText=volNum.textContent;
+    const wm=measureCtx.measureText(displayedText);
+    const textW=wm.actualBoundingBoxLeft+wm.actualBoundingBoxRight;
     // Height, though, is measured against a fixed reference glyph ("0"), not whatever's actually
     // displayed - digits share the same cap-height in this font regardless of which ones show, and
     // the initial "--" placeholder has almost no vertical ink, which would blow the scale up to
     // something huge if used directly.
-    const displayedText=volNum.textContent;
-    volNum.textContent="0";
-    const textH=volNum.getBBox().height;
-    volNum.textContent=displayedText;
+    const hm=measureCtx.measureText("0");
+    const textH=hm.actualBoundingBoxAscent+hm.actualBoundingBoxDescent;
     const scale=Math.min(boxW/textW,boxH/textH);
-    volNum.style.fontSize=Math.max(24,trial*scale)+"px";
-    // Re-measure at the real applied size and nudge with a transform until the ink itself (not an
-    // approximation of it) is centered in widgetNumber - correct regardless of this font's specific
-    // internal metrics, since it's driven by the actual rendered bounding box, not a model of it.
-    const bbox=volNum.getBBox();
-    const dx=(boxW/2)-(bbox.x+bbox.width/2);
-    const dy=(boxH/2)-(bbox.y+bbox.height/2);
-    volNum.setAttribute("transform",`translate(${dx},${dy})`);
+    const fontSize=Math.max(24,trial*scale);
+    volNum.style.fontSize=fontSize+"px";
+    // Re-measure the displayed text at the real applied size (actualBoundingBox* scales linearly
+    // with font-size just like the glyph outlines do, so re-measuring instead of rescaling the
+    // trial-size numbers avoids compounding rounding) and center the ink itself in widgetNumber by
+    // solving for the baseline position directly, rather than the box some model of the font claims.
+    // letter-spacing is re-read off the same live `cs` object, now that volNum's font-size has
+    // changed again - same reasoning as the trial-size read above.
+    measureCtx.font=`${fontSize}px ${cs.fontFamily}`;
+    if("letterSpacing" in measureCtx) measureCtx.letterSpacing=cs.letterSpacing;
+    const m=measureCtx.measureText(displayedText);
+    const x=(boxW-(m.actualBoundingBoxRight-m.actualBoundingBoxLeft))/2;
+    const y=(boxH-(m.actualBoundingBoxDescent-m.actualBoundingBoxAscent))/2;
+    volNum.setAttribute("x",x);
+    volNum.setAttribute("y",y);
   }
+
+  // Belt-and-suspenders on top of the explicit refreshNumberFont() calls scattered at every call
+  // site that resizes widgetNumber (applyWidget, updateDisplay, the font-load handler below): this
+  // watches the box's actual rendered size directly, so a fit can never go stale relative to
+  // whatever's currently on screen - regardless of which JS path drove the resize, or whether some
+  // future call site forgets to call refreshNumberFont() itself. Guards against re-entrant loops
+  // (ResizeObserver firing from refreshNumberFont()'s own DOM writes) by only reacting when the box
+  // size actually differs from the size the last fit was computed for.
+  let lastFitSize="";
+  new ResizeObserver(()=>{
+    const size=widgetNumber.offsetWidth+"x"+widgetNumber.offsetHeight;
+    if(size===lastFitSize) return;
+    lastFitSize=size;
+    refreshNumberFont();
+  }).observe(widgetNumber);
 
   function applyWidget(key){
     const el=widgetEl(key);
