@@ -17,7 +17,7 @@
        a pixel actually switching off and one staying lit at low brightness, which is the whole
        point of this page. No scanline/texture overlay either, for the same reason - it would sit
        outside the fading #stage and stay visible even while "off". */
-    --bg:#000000;--surface:#141417;--border:#2a2a30;--accent:#5b82e0;
+    --bg:#000000;--surface:#141417;--border:#2a2a30;--accent:#5b82e0;--accent-rgb:91,130,224;
     --text:#e8e4dc;--muted:#82838f;--red:#c0392b;--green:#2ecc71;
   }
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -39,23 +39,58 @@
   #widgetNumber{left:10%;top:15%;width:80%;height:45%}
   #widgetBar{left:10%;top:65%;width:80%;height:12%}
 
-  /* No explicit width - as a flex item this shrinks to its content's true intrinsic size, which
-     refreshNumberFont relies on to measure the actual rendered text dimensions (not an estimate). */
-  .vol-display{font-family:'Bebas Neue',sans-serif;color:var(--accent);line-height:1;
-    letter-spacing:-0.02em;transition:color 0.3s}
-  .vol-display.muted{color:var(--muted)}
+  /* Rendered as SVG text, not an HTML div - refreshNumberFont() needs the numeral's true ink
+     bounding box (getBBox()) to fit and center it tightly, and HTML has no reliable equivalent:
+     a div's own box is the CSS line box (tied to line-height, not ink), and Range().getBoundingClientRect()
+     - tried first - turned out to report something else entirely (a wide box's Range height came
+     back at over 1.6x the box itself), not tight ink either. SVG getBBox() is the one measurement
+     that's actually spec-defined as the tight geometric bounds of the rendered glyphs. */
+  .vol-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+  .vol-display{font-family:'Bebas Neue',sans-serif;fill:var(--accent);
+    letter-spacing:-0.02em;transition:fill 0.3s}
+  .vol-display.muted{fill:var(--muted)}
   .vol-display.stale{opacity:0.4}
 
+  /* border-radius here is a deliberately oversized px value, not 10px and not 50% - the browser
+     clamps it down to exactly half of whichever side is shorter, which is what actually produces
+     pill-shaped (semicircular) caps on a non-square box. 50% would instead resolve per-axis
+     (half-width horizontally, half-height vertically) and draw an ellipse/lens shape instead of a
+     pill - and since this track flips between wide-short and narrow-tall (see .vertical), a fixed
+     small radius like the old 10px wouldn't read as a pill in either orientation anyway. */
   .bar-track{width:100%;height:100%;background:var(--surface);border:1px solid var(--border);
-    border-radius:10px;overflow:hidden;position:relative}
+    border-radius:999px;overflow:hidden;position:relative}
   .bar-fill{position:absolute;left:0;top:0;bottom:0;width:0%;background:var(--accent);
     transition:width 0.3s ease,background 0.3s ease}
   .bar-fill.muted{background:var(--muted)}
+  /* Vertical mode fills bottom-to-top instead of left-to-right, like a level meter - top:auto
+     un-pins the edge width/height animates from base's top:0/bottom:0, so only one axis is ever
+     the animated one at a time (see updateDisplay(), which writes height instead of width here). */
+  #widgetBar.vertical .bar-fill{left:0;right:0;top:auto;bottom:0;width:auto;height:0%;
+    transition:height 0.3s ease,background 0.3s ease}
+
+  /* Fixed corner badge, not inline with the numeral - refreshNumberFont() sizes the numeral to
+     fill widgetNumber based on its own measured dimensions, so anything sharing that flex row
+     would throw off the fit-to-box math. Sized in % so it scales with the widget's own edit-mode
+     resize without any JS involvement. */
+  .mute-icon{position:absolute;left:3%;bottom:6%;width:9%;height:auto;color:var(--muted);
+    opacity:0;transition:opacity 0.3s;pointer-events:none}
+  .mute-icon.visible{opacity:1}
 
   .resize-handle{position:absolute;right:-8px;bottom:-8px;width:30px;height:30px;
     background:var(--accent);border-radius:50%;display:none;cursor:nwse-resize;
     border:3px solid var(--bg);touch-action:none}
   body.edit-mode .resize-handle{display:block}
+
+  /* Same accent-filled ring as .resize-handle so it reads as part of the same "edit-mode handle"
+     family, opposite corner so it's never fought over with the resize handle, icon tinted with
+     --bg for contrast against the fill. Only the bar widget gets one - orientation is meaningless
+     for the numeral. */
+  .orient-handle{position:absolute;left:-8px;top:-8px;width:30px;height:30px;
+    background:var(--accent);border-radius:50%;display:none;cursor:pointer;
+    border:3px solid var(--bg);touch-action:none;align-items:center;justify-content:center;
+    color:var(--bg);padding:0}
+  body.edit-mode .orient-handle{display:flex}
+  .orient-handle svg{display:block}
 
   .chrome{position:fixed;top:16px;right:16px;display:flex;align-items:center;gap:10px;z-index:5}
   .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);
@@ -73,6 +108,13 @@
      parent - block display removes that so the icon actually lands in the button's true center. */
   .chrome-btn svg{display:block}
 
+  /* Takes the chrome row's place while editing - same rgba accent tint as .preset-btn.active,
+     so it reads as "the one thing you can do right now" rather than a generic button. */
+  .apply-btn{background:rgba(var(--accent-rgb),0.12);border:1px solid var(--accent);color:var(--accent);
+    font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.1em;padding:0 16px;height:42px;
+    border-radius:21px;cursor:pointer;white-space:nowrap;display:flex;align-items:center}
+  .apply-btn[hidden]{display:none}
+
   .panel{position:fixed;top:66px;right:16px;z-index:6;background:var(--surface);
     border:1px solid var(--border);border-radius:6px;padding:20px 22px;width:min(300px,80vw)}
   .panel[hidden]{display:none}
@@ -83,7 +125,36 @@
     font-family:'DM Mono',monospace;font-size:11px;padding:8px 0;border-radius:4px;cursor:pointer;
     transition:border-color 0.2s,color 0.2s}
   .preset-btn:hover{border-color:var(--accent);color:var(--accent)}
-  .preset-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(91,130,224,0.12)}
+  .preset-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(var(--accent-rgb),0.12)}
+  .preset-btn:disabled{opacity:0.35;cursor:not-allowed}
+  .preset-btn:disabled:hover{border-color:var(--border);color:var(--muted)}
+
+  /* Accent color picker - ported from kef_volume.html's settings panel, but this page keeps its
+     own saved color (see ACCENT_KEY in the script below) rather than sharing kef_volume's, since
+     the two displays are used independently and re-tinting one shouldn't silently re-tint the
+     other. */
+  .swatch-group{display:flex;gap:10px}
+  .swatch{width:26px;height:26px;border-radius:50%;border:none;cursor:pointer;padding:0;
+    box-shadow:0 0 0 2px transparent;transition:box-shadow 0.15s}
+  .swatch:hover{box-shadow:0 0 0 2px var(--border)}
+  .swatch.active{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--text)}
+  .custom-row{display:flex;align-items:center;gap:12px;margin-top:16px}
+  .custom-swatch-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:5px;flex-shrink:0}
+  .custom-swatch-box{position:relative;width:26px;height:26px}
+  .custom-swatch-fill{position:absolute;inset:0;width:100%;height:100%;border-radius:50%;
+    box-shadow:0 0 0 2px transparent;transition:box-shadow 0.15s;pointer-events:none}
+  .custom-swatch-box:hover .custom-swatch-fill{box-shadow:0 0 0 2px var(--border)}
+  .custom-swatch-fill.active{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--text)}
+  .custom-swatch-icon{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:12px;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;pointer-events:none}
+  .custom-swatch-input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;
+    border:none;padding:0}
+  .custom-swatch-label{font-size:8px;letter-spacing:0.1em;color:var(--muted)}
+  .hex-input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);
+    color:var(--text);font-family:'DM Mono',monospace;font-size:13px;letter-spacing:0.03em;
+    padding:8px 10px;border-radius:4px}
+  .hex-input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .hex-input.invalid{border-color:var(--red);color:var(--red)}
 
   .safety-toggle{display:flex;align-items:center;gap:8px;font-size:10px;letter-spacing:0.08em;
     color:var(--muted);margin-bottom:16px;cursor:pointer;user-select:none}
@@ -139,11 +210,18 @@
 
 <div class="stage" id="stage">
   <div class="widget" id="widgetNumber">
-    <div class="vol-display" id="volNum">--</div>
+    <svg class="vol-svg" id="volNumSvg"><text class="vol-display" id="volNum" x="0" y="0">--</text></svg>
+    <svg class="mute-icon" id="muteIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M11 5 6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
+    </svg>
     <div class="resize-handle" id="handleNumber"></div>
   </div>
   <div class="widget" id="widgetBar">
     <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
+    <button class="orient-handle" id="handleBarOrient" aria-label="Rotate volume bar to vertical">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 3v5h-5"/></svg>
+    </button>
     <div class="resize-handle" id="handleBar"></div>
   </div>
 </div>
@@ -152,6 +230,7 @@
   <button class="chrome-btn" id="rotateBtn" aria-label="Rotate display" hidden><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 3v5h-5"/></svg></button>
   <button class="chrome-btn" id="fullscreenBtn" aria-label="Toggle fullscreen"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V5a1 1 0 0 1 1-1h4"/><path d="M15 4h4a1 1 0 0 1 1 1v4"/><path d="M20 15v4a1 1 0 0 1-1 1h-4"/><path d="M9 20H5a1 1 0 0 1-1-1v-4"/></svg></button>
   <button class="chrome-btn" id="settingsBtn" aria-label="Settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M 18.82 10.43 L 21.19 10.55 L 21.19 13.45 L 18.82 13.57 A 7 7 0 0 1 17.94 15.71 L 19.52 17.47 L 17.47 19.52 L 15.71 17.94 A 7 7 0 0 1 13.57 18.82 L 13.45 21.19 L 10.55 21.19 L 10.43 18.82 A 7 7 0 0 1 8.29 17.94 L 6.53 19.52 L 4.48 17.47 L 6.06 15.71 A 7 7 0 0 1 5.18 13.57 L 2.81 13.45 L 2.81 10.55 L 5.18 10.43 A 7 7 0 0 1 6.06 8.29 L 4.48 6.53 L 6.53 4.48 L 8.29 6.06 A 7 7 0 0 1 10.43 5.18 L 10.55 2.81 L 13.45 2.81 L 13.57 5.18 A 7 7 0 0 1 15.71 6.06 L 17.47 4.48 L 19.52 6.53 L 17.94 8.29 A 7 7 0 0 1 18.82 10.43 Z"/><circle cx="12" cy="12" r="3"/></svg></button>
+  <button class="apply-btn" id="applyChangesBtn" hidden>✓ APPLY CHANGES</button>
   <span class="dot loading" id="dot"></span>
 </div>
 
@@ -169,10 +248,31 @@
     <input type="checkbox" id="alwaysOnCheckbox">
     <span>ALWAYS ON (DISABLE AUTO-DIM)</span>
   </label>
-  <label class="safety-toggle" for="editModeCheckbox">
-    <input type="checkbox" id="editModeCheckbox">
-    <span>EDIT LAYOUT (DRAG / RESIZE)</span>
-  </label>
+  <div class="panel-row">
+    <span class="panel-label">ACCENT COLOR</span>
+    <div class="swatch-group" id="swatchGroup">
+      <button class="swatch" data-hex="#5b82e0" style="background:#5b82e0" aria-label="Blue accent"></button>
+      <button class="swatch" data-hex="#4fc3a1" style="background:#4fc3a1" aria-label="Teal accent"></button>
+      <button class="swatch" data-hex="#9b6bdb" style="background:#9b6bdb" aria-label="Purple accent"></button>
+      <button class="swatch" data-hex="#e0a75b" style="background:#e0a75b" aria-label="Amber accent"></button>
+      <button class="swatch" data-hex="#e05b6e" style="background:#e05b6e" aria-label="Coral accent"></button>
+      <button class="swatch" data-hex="#4fb86a" style="background:#4fb86a" aria-label="Green accent"></button>
+    </div>
+    <div class="custom-row">
+      <div class="custom-swatch-wrap">
+        <div class="custom-swatch-box">
+          <div class="custom-swatch-fill" id="customSwatchFill"></div>
+          <span class="custom-swatch-icon" aria-hidden="true">&#9998;</span>
+          <input type="color" class="custom-swatch-input" id="customColor" value="#5b82e0"
+            aria-label="Custom accent color" title="Custom color">
+        </div>
+        <span class="custom-swatch-label">CUSTOM</span>
+      </div>
+      <input type="text" class="hex-input" id="hexInput" value="#5b82e0" maxlength="7"
+        aria-label="Accent color hex code" spellcheck="false" autocapitalize="off" autocomplete="off">
+    </div>
+  </div>
+  <button class="refresh-btn" id="editLayoutBtn" style="margin-bottom:10px">EDIT LAYOUT (DRAG / RESIZE)</button>
   <button class="refresh-btn" id="resetLayoutBtn">↺ RESET LAYOUT</button>
 </div>
 
@@ -194,18 +294,21 @@
   const rotateWrapper=document.getElementById("rotateWrapper");
   const stage=document.getElementById("stage");
   const volNum=document.getElementById("volNum");
+  const muteIcon=document.getElementById("muteIcon");
   const barFill=document.getElementById("barFill");
   const widgetNumber=document.getElementById("widgetNumber");
   const widgetBar=document.getElementById("widgetBar");
   const handleNumber=document.getElementById("handleNumber");
   const handleBar=document.getElementById("handleBar");
+  const handleBarOrient=document.getElementById("handleBarOrient");
   const dot=document.getElementById("dot");
   const fullscreenBtn=document.getElementById("fullscreenBtn");
   const rotateBtn=document.getElementById("rotateBtn");
   const settingsBtn=document.getElementById("settingsBtn");
   const settingsPanel=document.getElementById("settingsPanel");
   const alwaysOnCheckbox=document.getElementById("alwaysOnCheckbox");
-  const editModeCheckbox=document.getElementById("editModeCheckbox");
+  const editLayoutBtn=document.getElementById("editLayoutBtn");
+  const applyChangesBtn=document.getElementById("applyChangesBtn");
   const resetLayoutBtn=document.getElementById("resetLayoutBtn");
   const iosHint=document.getElementById("iosHint");
 
@@ -232,7 +335,8 @@
     return {x:el.offsetLeft,y:el.offsetTop,width:el.offsetWidth,height:el.offsetHeight};
   }
   function captureCurrentLayout(){
-    return {number:rectOf(widgetNumber),bar:rectOf(widgetBar)};
+    return {number:rectOf(widgetNumber),
+      bar:{...rectOf(widgetBar),orientation:widgetBar.classList.contains("vertical")?"vertical":"horizontal"}};
   }
   // Defensive fallback only - by the time a user could actually start a drag, init (see below) has
   // long since established layoutHome. Cheap insurance against a pathological edge case (e.g. a
@@ -264,10 +368,11 @@
     layout={};
     ["number","bar"].forEach(key=>{
       const h=layoutHome.layout[key];
-      layout[key]={x:h.x*scale+offsetX,y:h.y*scale+offsetY,width:h.width*scale,height:h.height*scale};
+      layout[key]={x:h.x*scale+offsetX,y:h.y*scale+offsetY,width:h.width*scale,height:h.height*scale,orientation:h.orientation};
     });
     applyWidget("number");
     applyWidget("bar");
+    applyBarOrientation();
   }
 
   function refreshNumberFont(){
@@ -276,11 +381,41 @@
     // digits visibly smaller than the box could actually fit). Font rendering scales linearly with
     // font-size, so one measurement is enough to solve exactly for the largest uniform size that
     // fits both the box's width and height - the trial size itself is arbitrary, it cancels out.
+    //
+    // volNum is an SVG <text> element specifically so getBBox() is available: it's the one
+    // measurement that's actually spec-defined as the tight geometric bounds of the rendered
+    // glyphs. Two other approaches were tried and both turned out to measure the wrong thing -
+    // volNum.offsetHeight (if it were a div) is the CSS line box, tied to line-height/font-size,
+    // not to how tall the glyphs actually are; Range().getBoundingClientRect() looked plausible
+    // but empirically reports something else again (on one box its "ink" height came back at over
+    // 1.6x the box's own height). Both left the numeral either not filling its box, or filling it
+    // asymmetrically and overflowing one edge. getBBox() is the only one that's actually reliable.
     const boxW=widgetNumber.offsetWidth,boxH=widgetNumber.offsetHeight;
     const trial=100;
+    volNum.removeAttribute("transform");
+    volNum.setAttribute("x",0);
+    volNum.setAttribute("y",0);
     volNum.style.fontSize=trial+"px";
-    const scale=Math.min(boxW/volNum.offsetWidth,boxH/volNum.offsetHeight);
+    // Width comes from the actual displayed text's own bbox - correctly reflects however many
+    // digits are showing (e.g. "1" vs "88") and this font's letter-spacing.
+    const textW=volNum.getBBox().width;
+    // Height, though, is measured against a fixed reference glyph ("0"), not whatever's actually
+    // displayed - digits share the same cap-height in this font regardless of which ones show, and
+    // the initial "--" placeholder has almost no vertical ink, which would blow the scale up to
+    // something huge if used directly.
+    const displayedText=volNum.textContent;
+    volNum.textContent="0";
+    const textH=volNum.getBBox().height;
+    volNum.textContent=displayedText;
+    const scale=Math.min(boxW/textW,boxH/textH);
     volNum.style.fontSize=Math.max(24,trial*scale)+"px";
+    // Re-measure at the real applied size and nudge with a transform until the ink itself (not an
+    // approximation of it) is centered in widgetNumber - correct regardless of this font's specific
+    // internal metrics, since it's driven by the actual rendered bounding box, not a model of it.
+    const bbox=volNum.getBBox();
+    const dx=(boxW/2)-(bbox.x+bbox.width/2);
+    const dy=(boxH/2)-(bbox.y+bbox.height/2);
+    volNum.setAttribute("transform",`translate(${dx},${dy})`);
   }
 
   function applyWidget(key){
@@ -291,6 +426,46 @@
     el.style.width=l.width+"px";
     el.style.height=l.height+"px";
     if(key==="number") refreshNumberFont();
+  }
+
+  // Toggles the volume bar between filling left-to-right and filling bottom-to-top (see the
+  // #widgetBar.vertical CSS), so it can be resized tall-and-narrow and placed beside the numeral
+  // instead of only ever spanning full-width beneath it.
+  function applyBarOrientation(){
+    // Reads whichever of width/height is currently the live one (rather than lastRenderedVolume,
+    // which is still null until the first successful poll) so this works even before any real
+    // volume has ever been fetched - carries the same fill % straight over to the other axis.
+    const currentPct=parseFloat(barFill.style.width)||parseFloat(barFill.style.height)||0;
+    const vertical=layout.bar.orientation==="vertical";
+    widgetBar.classList.toggle("vertical",vertical);
+    handleBarOrient.setAttribute("aria-label",vertical?"Rotate volume bar to horizontal":"Rotate volume bar to vertical");
+    if(vertical){
+      barFill.style.height=currentPct+"%";
+      barFill.style.width="";
+    } else {
+      barFill.style.width=currentPct+"%";
+      barFill.style.height="";
+    }
+  }
+
+  // Actually spins the bounding box itself, not just the fill inside it - the box keeps the exact
+  // same two edge lengths it already had (just transposed) and the same center point, the way
+  // physically rotating a rectangle 90 degrees would, rather than leaving the box's shape alone and
+  // only reinterpreting what's drawn inside it (which left a wide/short box looking broken until
+  // the user separately dragged the resize handle to make it tall/narrow themselves).
+  function toggleBarOrientation(){
+    ensureLayout();
+    const bar=layout.bar;
+    bar.orientation=bar.orientation==="vertical"?"horizontal":"vertical";
+    const cx=bar.x+bar.width/2,cy=bar.y+bar.height/2;
+    const newWidth=bar.height,newHeight=bar.width;
+    bar.width=newWidth;
+    bar.height=newHeight;
+    bar.x=clamp(cx-newWidth/2,newWidth,rotateWrapper.offsetWidth);
+    bar.y=clamp(cy-newHeight/2,newHeight,rotateWrapper.offsetHeight);
+    applyWidget("bar");
+    applyBarOrientation();
+    commitLayoutAsHome();
   }
 
   // Commits the currently displayed layout as the new authoritative home, at whatever canvas size
@@ -308,10 +483,12 @@
     [widgetNumber,widgetBar].forEach(el=>{
       el.style.left="";el.style.top="";el.style.width="";el.style.height="";
     });
+    widgetBar.classList.remove("vertical"); // must happen before captureCurrentLayout() reads it below
     layout=captureCurrentLayout();
     commitLayoutAsHome();
     applyWidget("number");
     applyWidget("bar");
+    applyBarOrientation();
   }
 
   function saveLayoutHome(){
@@ -347,6 +524,7 @@
   function updatePresetActiveState(){
     document.querySelectorAll(".preset-btn").forEach(btn=>{
       btn.classList.toggle("active",parseInt(btn.dataset.secs)===settings.timeoutSeconds);
+      btn.disabled=settings.alwaysOn; // the timeout has no effect while auto-dim itself is disabled
     });
   }
 
@@ -389,7 +567,14 @@
     volNum.textContent=vol100;
     volNum.classList.toggle("muted",muted);
     volNum.classList.toggle("stale",stale);
-    barFill.style.width=vol100+"%";
+    muteIcon.classList.toggle("visible",muted);
+    if(widgetBar.classList.contains("vertical")){
+      barFill.style.height=vol100+"%";
+      barFill.style.width="";
+    } else {
+      barFill.style.width=vol100+"%";
+      barFill.style.height="";
+    }
     barFill.classList.toggle("muted",muted);
     refreshNumberFont(); // digit count changes (e.g. 9 -> 10) shift the width-based cap in refreshNumberFont
   }
@@ -408,12 +593,85 @@
     }
   }
 
+  // --- accent color --- (ported from kef_volume.html, but kept under its own key so the two
+  // pages' accents can be set independently instead of one silently following the other)
+  const ACCENT_KEY="kef_display_accent";
+  const ACCENT_PRESETS=["#5b82e0","#4fc3a1","#9b6bdb","#e0a75b","#e05b6e","#4fb86a"];
+  const HEX_RE=/^#[0-9a-f]{6}$/i;
+  const customColorInput=document.getElementById("customColor");
+  const customSwatchFill=document.getElementById("customSwatchFill");
+  const hexInput=document.getElementById("hexInput");
+  let currentAccent=ACCENT_PRESETS[0];
+
+  function hexToRgb(hex){
+    const n=parseInt(hex.slice(1),16);
+    return `${(n>>16)&255},${(n>>8)&255},${n&255}`;
+  }
+  function normalizeHex(raw){
+    let v=raw.trim().toLowerCase();
+    if(!v.startsWith("#")) v="#"+v;
+    if(/^#[0-9a-f]{3}$/.test(v)) v="#"+v.slice(1).split("").map(c=>c+c).join("");
+    return v;
+  }
+  function setAccent(hex){
+    hex=hex.toLowerCase();
+    currentAccent=hex;
+    document.documentElement.style.setProperty("--accent",hex);
+    document.documentElement.style.setProperty("--accent-rgb",hexToRgb(hex));
+    const isPreset=ACCENT_PRESETS.includes(hex);
+    document.querySelectorAll(".swatch").forEach(s=>s.classList.toggle("active",s.dataset.hex===hex));
+    customColorInput.value=hex;
+    customSwatchFill.style.background=hex;
+    customSwatchFill.classList.toggle("active",!isPreset);
+    if(document.activeElement!==hexInput) hexInput.value=hex;
+    hexInput.classList.remove("invalid");
+  }
+  document.querySelectorAll(".swatch").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      setAccent(btn.dataset.hex);
+      localStorage.setItem(ACCENT_KEY,btn.dataset.hex);
+    });
+  });
+  customColorInput.addEventListener("input",()=>{
+    setAccent(customColorInput.value);
+    localStorage.setItem(ACCENT_KEY,customColorInput.value);
+  });
+  hexInput.addEventListener("input",()=>{
+    const v=normalizeHex(hexInput.value);
+    if(HEX_RE.test(v)){
+      setAccent(v);
+      localStorage.setItem(ACCENT_KEY,v);
+    } else {
+      hexInput.classList.add("invalid");
+    }
+  });
+  hexInput.addEventListener("keydown",(e)=>{
+    if(e.key==="Enter"){ e.preventDefault(); hexInput.blur(); }
+  });
+  hexInput.addEventListener("blur",()=>{
+    hexInput.value=currentAccent;
+    hexInput.classList.remove("invalid");
+  });
+  (function loadAccent(){
+    const saved=localStorage.getItem(ACCENT_KEY);
+    setAccent(saved&&HEX_RE.test(saved)?saved:ACCENT_PRESETS[0]);
+  })();
+
   // --- settings panel ---
   function togglePanel(){
     panelOpen=!panelOpen;
     settingsPanel.hidden=!panelOpen;
   }
   settingsBtn.addEventListener("click",togglePanel);
+
+  // Closes the panel on any tap outside it - settingsBtn is excluded since its own click handler
+  // above already owns opening/closing it; without that exclusion this would immediately re-close
+  // whatever that handler just opened, as the same click bubbles up to document.
+  document.addEventListener("click",(e)=>{
+    if(!panelOpen) return;
+    if(settingsPanel.contains(e.target)||settingsBtn.contains(e.target)||applyChangesBtn.contains(e.target)) return;
+    togglePanel();
+  });
 
   document.querySelectorAll(".preset-btn").forEach(btn=>{
     btn.addEventListener("click",()=>{
@@ -427,13 +685,41 @@
     settings.alwaysOn=alwaysOnCheckbox.checked;
     if(settings.alwaysOn) wake();
     saveSettings();
+    updatePresetActiveState(); // re-evaluate the presets' disabled state
   });
 
-  editModeCheckbox.addEventListener("change",()=>{
-    editMode=editModeCheckbox.checked;
-    document.body.classList.toggle("edit-mode",editMode);
-    if(editMode) wake();
-  });
+  // Editing takes over the whole screen instead of living inside the settings panel - there's no
+  // room to both see the full layout you're dragging/resizing AND keep the panel open, especially
+  // on a phone. The panel closes and the chrome row's other buttons hide for the duration; a single
+  // "Apply Changes" button takes their place and is the only way back, which also means there's no
+  // separate "done editing" checkbox state to forget to uncheck.
+  function enterEditMode(){
+    editMode=true;
+    document.body.classList.add("edit-mode");
+    wake();
+    panelOpen=false;
+    settingsPanel.hidden=true;
+    fullscreenBtn.hidden=true;
+    rotateBtn.hidden=true;
+    settingsBtn.hidden=true;
+    applyChangesBtn.hidden=false;
+  }
+
+  function exitEditMode(){
+    editMode=false;
+    document.body.classList.remove("edit-mode");
+    applyChangesBtn.hidden=true;
+    settingsBtn.hidden=false;
+    if(canFullscreen){
+      fullscreenBtn.hidden=false;
+      rotateBtn.hidden=!document.fullscreenElement;
+    }
+    panelOpen=true;
+    settingsPanel.hidden=false;
+  }
+
+  editLayoutBtn.addEventListener("click",enterEditMode);
+  applyChangesBtn.addEventListener("click",exitEditMode);
 
   resetLayoutBtn.addEventListener("click",resetLayout);
 
@@ -475,10 +761,17 @@
     ensureLayout();
     const startX=e.clientX,startY=e.clientY;
     const orig={...layout[key]};
+    // For the bar, width/height swap which one is "thickness" vs "length" depending on
+    // orientation (see toggleBarOrientation) - without this, the minimum thickness you could
+    // resize down to would silently flip between MIN_WIDTH and MIN_HEIGHT depending on which way
+    // the bar happened to be facing, instead of staying the same physical minimum either way.
+    const vertical=key==="bar"&&layout.bar.orientation==="vertical";
+    const minW=vertical?MIN_HEIGHT:MIN_WIDTH;
+    const minH=vertical?MIN_WIDTH:MIN_HEIGHT;
     function onMove(ev){
       const dx=ev.clientX-startX,dy=ev.clientY-startY;
-      layout[key].width=Math.max(MIN_WIDTH,orig.width+dx);
-      layout[key].height=Math.max(MIN_HEIGHT,orig.height+dy);
+      layout[key].width=Math.max(minW,orig.width+dx);
+      layout[key].height=Math.max(minH,orig.height+dy);
       applyWidget(key);
     }
     function onUp(){
@@ -494,6 +787,10 @@
   widgetBar.addEventListener("pointerdown",(e)=>startDrag(e,"bar"));
   handleNumber.addEventListener("pointerdown",(e)=>{e.stopPropagation();startResize(e,"number");});
   handleBar.addEventListener("pointerdown",(e)=>{e.stopPropagation();startResize(e,"bar");});
+  // A tap, not a drag - stopPropagation still needed so it doesn't also reach widgetBar's own
+  // pointerdown-drag listener above.
+  handleBarOrient.addEventListener("pointerdown",(e)=>e.stopPropagation());
+  handleBarOrient.addEventListener("click",toggleBarOrientation);
 
   // --- keep-awake (looping video + audible track, muted at the OS media-volume level) ---
   // The Screen Wake Lock API is the "real" way to stop the OS from sleeping the display, but it
@@ -645,6 +942,17 @@
   });
 
   window.addEventListener("resize",reconcileLayoutToCurrentSize); // e.g. mobile browser chrome show/hide changing the available space
+
+  // The Google Fonts stylesheet is loaded with display=swap, so on a real (non-cached) load the
+  // browser paints with the fallback sans-serif FIRST and swaps to Bebas Neue only once it finishes
+  // downloading. refreshNumberFont() runs well before that swap (right after layoutHome is
+  // established above), so its font-size and centering transform get solved against the fallback
+  // font's metrics - a completely different glyph shape/proportions - and nothing re-solves them
+  // once Bebas Neue actually swaps in. That mismatch is exactly what showed up as digits sized and
+  // positioned as if for a smaller, differently-shaped invisible box - it never used to reproduce in
+  // repeat local testing simply because the font was already warm in cache by then. Re-running once
+  // the real font is confirmed loaded/in-use corrects it regardless of load timing.
+  if(document.fonts) document.fonts.ready.then(refreshNumberFont);
 
   fetchVolume();
   setInterval(fetchVolume,AUTO_REFRESH_MS);
