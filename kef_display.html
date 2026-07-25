@@ -628,12 +628,17 @@
   }
 
   // --- fade/dim state machine ---
-  function wake(){
+  // includeChrome=false wakes only the numbers/bar (.stage), leaving the chromeRow buttons dimmed -
+  // used for the auto-refresh path below, where a server-side state change shouldn't itself reveal
+  // the on-screen controls the way a real user touch does.
+  function wake(includeChrome=true){
     lastActivity=Date.now();
     stage.classList.remove("fade-out");
     stage.classList.remove("dimmed");
-    chromeRow.classList.remove("fade-out");
-    chromeRow.classList.remove("dimmed");
+    if(includeChrome){
+      chromeRow.classList.remove("fade-out");
+      chromeRow.classList.remove("dimmed");
+    }
   }
 
   function checkDim(){
@@ -689,7 +694,7 @@
       const res=await fetch("/volume",{signal:AbortSignal.timeout(15000)});
       const data=await res.json();
       const vol100=Math.round(data.volume*100);
-      if(lastRenderedVolume!==null&&vol100!==lastRenderedVolume) wake(); // a genuine volume change wakes the display too
+      if(lastRenderedVolume!==null&&vol100!==lastRenderedVolume) wake(false); // a genuine volume change wakes the numbers/bar, not the chrome buttons
       lastRenderedVolume=vol100;
       setOnline(data.online);
       updateDisplay(vol100,data.muted,!data.online);
