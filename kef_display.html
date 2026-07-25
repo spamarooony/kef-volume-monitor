@@ -92,6 +92,31 @@
   body.edit-mode .orient-handle{display:flex}
   .orient-handle svg{display:block}
 
+  /* Opposite corner from .orient-handle, red instead of accent-filled - same "edit-mode handle"
+     family but visually flagged as the one destructive action among them, since a mistap here
+     (unlike drag/resize/rotate) can't be undone by just moving the pointer back. */
+  .close-handle{position:absolute;right:-8px;top:-8px;width:30px;height:30px;
+    background:var(--red);border-radius:50%;display:none;cursor:pointer;
+    border:3px solid var(--bg);touch-action:none;align-items:center;justify-content:center;
+    color:var(--bg);padding:0}
+  body.edit-mode .close-handle{display:flex}
+  .close-handle svg{display:block}
+
+  /* widget-hidden marks a widget the user removed via .close-handle (currently only the bar
+     supports this). Outside edit mode it's fully gone; inside edit mode it collapses to an empty
+     ghost (still positioned/sized/draggable like any other widget, via the same .widget outline)
+     with a restore affordance, so removing it can be undone in place without a full layout reset
+     that would also discard any unrelated edits made to the numeral widget. */
+  body:not(.edit-mode) .widget.widget-hidden{display:none}
+  body.edit-mode .widget.widget-hidden .bar-track,
+  body.edit-mode .widget.widget-hidden .orient-handle,
+  body.edit-mode .widget.widget-hidden .resize-handle,
+  body.edit-mode .widget.widget-hidden .close-handle{display:none}
+  .restore-btn{display:none;background:rgba(var(--accent-rgb),0.12);border:1px solid var(--accent);
+    color:var(--accent);font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.08em;
+    padding:8px 16px;border-radius:20px;cursor:pointer;white-space:nowrap}
+  body.edit-mode .widget-hidden .restore-btn{display:block}
+
   .chrome{position:fixed;top:16px;right:16px;display:flex;align-items:center;gap:10px;z-index:5}
   .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);
     transition:background 0.3s}
@@ -222,7 +247,11 @@
     <button class="orient-handle" id="handleBarOrient" aria-label="Rotate volume bar to vertical">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 3v5h-5"/></svg>
     </button>
+    <button class="close-handle" id="handleBarClose" aria-label="Remove volume bar">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>
+    </button>
     <div class="resize-handle" id="handleBar"></div>
+    <button class="restore-btn" id="restoreBarBtn">+ RESTORE BAR</button>
   </div>
 </div>
 
@@ -304,6 +333,8 @@
   const handleNumber=document.getElementById("handleNumber");
   const handleBar=document.getElementById("handleBar");
   const handleBarOrient=document.getElementById("handleBarOrient");
+  const handleBarClose=document.getElementById("handleBarClose");
+  const restoreBarBtn=document.getElementById("restoreBarBtn");
   const dot=document.getElementById("dot");
   const fullscreenBtn=document.getElementById("fullscreenBtn");
   const rotateBtn=document.getElementById("rotateBtn");
@@ -339,7 +370,8 @@
   }
   function captureCurrentLayout(){
     return {number:rectOf(widgetNumber),
-      bar:{...rectOf(widgetBar),orientation:widgetBar.classList.contains("vertical")?"vertical":"horizontal"}};
+      bar:{...rectOf(widgetBar),orientation:widgetBar.classList.contains("vertical")?"vertical":"horizontal",
+        visible:!widgetBar.classList.contains("widget-hidden")}};
   }
   // Defensive fallback only - by the time a user could actually start a drag, init (see below) has
   // long since established layoutHome. Cheap insurance against a pathological edge case (e.g. a
@@ -371,11 +403,12 @@
     layout={};
     ["number","bar"].forEach(key=>{
       const h=layoutHome.layout[key];
-      layout[key]={x:h.x*scale+offsetX,y:h.y*scale+offsetY,width:h.width*scale,height:h.height*scale,orientation:h.orientation};
+      layout[key]={x:h.x*scale+offsetX,y:h.y*scale+offsetY,width:h.width*scale,height:h.height*scale,orientation:h.orientation,visible:h.visible};
     });
     applyWidget("number");
     applyWidget("bar");
     applyBarOrientation();
+    applyBarVisibility();
   }
 
   function refreshNumberFont(){
@@ -491,6 +524,26 @@
     }
   }
 
+  // Shows/hides the bar widget per layout.bar.visible - see the .widget-hidden CSS for how this
+  // reads differently in vs. out of edit mode (fully gone vs. a restorable ghost).
+  function applyBarVisibility(){
+    widgetBar.classList.toggle("widget-hidden",layout.bar.visible===false);
+  }
+
+  function hideBar(){
+    ensureLayout();
+    layout.bar.visible=false;
+    applyBarVisibility();
+    commitLayoutAsHome();
+  }
+
+  function showBar(){
+    ensureLayout();
+    layout.bar.visible=true;
+    applyBarVisibility();
+    commitLayoutAsHome();
+  }
+
   // Actually spins the bounding box itself, not just the fill inside it - the box keeps the exact
   // same two edge lengths it already had (just transposed) and the same center point, the way
   // physically rotating a rectangle 90 degrees would, rather than leaving the box's shape alone and
@@ -527,11 +580,13 @@
       el.style.left="";el.style.top="";el.style.width="";el.style.height="";
     });
     widgetBar.classList.remove("vertical"); // must happen before captureCurrentLayout() reads it below
+    widgetBar.classList.remove("widget-hidden");
     layout=captureCurrentLayout();
     commitLayoutAsHome();
     applyWidget("number");
     applyWidget("bar");
     applyBarOrientation();
+    applyBarVisibility();
   }
 
   function saveLayoutHome(){
@@ -834,6 +889,10 @@
   // pointerdown-drag listener above.
   handleBarOrient.addEventListener("pointerdown",(e)=>e.stopPropagation());
   handleBarOrient.addEventListener("click",toggleBarOrientation);
+  handleBarClose.addEventListener("pointerdown",(e)=>e.stopPropagation());
+  handleBarClose.addEventListener("click",hideBar);
+  restoreBarBtn.addEventListener("pointerdown",(e)=>e.stopPropagation());
+  restoreBarBtn.addEventListener("click",showBar);
 
   // --- keep-awake (looping video + audible track, muted at the OS media-volume level) ---
   // The Screen Wake Lock API is the "real" way to stop the OS from sleeping the display, but it
