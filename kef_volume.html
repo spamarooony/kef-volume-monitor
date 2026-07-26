@@ -26,8 +26,12 @@
   body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
     background:radial-gradient(ellipse 640px 520px at 50% 50%,rgba(var(--accent-rgb),0.14),
     transparent 70%)}
+  /* max-height + overflow-y matter on short viewports (landscape phones, small windows) - body's
+     own overflow:hidden means anything taller than the viewport would otherwise just clip past
+     the card's fixed padding with no way to reach it, rather than scrolling into view. */
   .card{position:relative;z-index:1;background:var(--surface);border:1px solid var(--border);
-    border-radius:8px;width:min(420px,92vw);padding:48px 44px 40px}
+    border-radius:8px;width:min(420px,92vw);padding:48px 44px 40px;
+    max-height:100vh;max-height:100dvh;overflow-y:auto}
   .brand{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:0.35em;
     color:var(--muted);margin-bottom:6px}
   .model{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:0.08em;

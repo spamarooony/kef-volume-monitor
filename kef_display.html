@@ -140,8 +140,15 @@
     border-radius:21px;cursor:pointer;white-space:nowrap;display:flex;align-items:center}
   .apply-btn[hidden]{display:none}
 
+  /* max-height/overflow-y matter most at rot-90/270, where rotateWrapper's local height equals the
+     phone's physical *width* - often much shorter than this panel's intrinsic content height - and
+     body's own overflow:hidden (above) means anything past that height would otherwise be clipped
+     with no way to reach it, rather than simply scrolling into view. The percentage resolves against
+     rotateWrapper itself (the containing block for fixed-position descendants once it's transformed -
+     see its own comment), so this stays correct at every rotation, not just rot-0. */
   .panel{position:fixed;top:66px;right:16px;z-index:6;background:var(--surface);
-    border:1px solid var(--border);border-radius:6px;padding:20px 22px;width:min(300px,80vw)}
+    border:1px solid var(--border);border-radius:6px;padding:20px 22px;width:min(300px,80vw);
+    max-height:calc(100% - 82px);overflow-y:auto}
   .panel[hidden]{display:none}
   .panel-label{display:block;font-size:10px;letter-spacing:0.12em;color:var(--muted);margin-bottom:10px}
   .panel-row{margin-bottom:18px}
@@ -845,6 +852,18 @@
     return Math.min(max,Math.max(min,val));
   }
 
+  // Pointer coordinates (e.clientX/Y) are always in real, unrotated screen space, but widget
+  // layout (x/y/width/height) is expressed in rotateWrapper's own local space - the space that's
+  // actually rotated by the CSS transform (see #rotateWrapper above). At rot-0 those two spaces
+  // coincide, but at 90/180/270 dragging "right" on screen no longer means "right" in local space,
+  // so a raw screen-space delta has to be rotated back (by -theta) into local space before it's
+  // added to a widget's local x/y (or width/height, which are a corner's local delta too).
+  function screenDeltaToLocal(dx,dy){
+    const rad=ROTATIONS[rotationIndex]*Math.PI/180;
+    const cos=Math.cos(rad),sin=Math.sin(rad);
+    return {dx:cos*dx+sin*dy,dy:cos*dy-sin*dx};
+  }
+
   function startDrag(e,key){
     if(!editMode) return;
     e.preventDefault();
@@ -852,7 +871,7 @@
     const startX=e.clientX,startY=e.clientY;
     const orig={...layout[key]};
     function onMove(ev){
-      const dx=ev.clientX-startX,dy=ev.clientY-startY;
+      const{dx,dy}=screenDeltaToLocal(ev.clientX-startX,ev.clientY-startY);
       // Clamped against rotateWrapper's own rendered box, not window.innerWidth/innerHeight -
       // when rotated 90/270 that box is deliberately width/height-swapped from the raw viewport,
       // and widgets are positioned relative to it (see the #rotateWrapper CSS comment), not the
@@ -884,7 +903,7 @@
     const minW=vertical?MIN_HEIGHT:MIN_WIDTH;
     const minH=vertical?MIN_WIDTH:MIN_HEIGHT;
     function onMove(ev){
-      const dx=ev.clientX-startX,dy=ev.clientY-startY;
+      const{dx,dy}=screenDeltaToLocal(ev.clientX-startX,ev.clientY-startY);
       layout[key].width=Math.max(minW,orig.width+dx);
       layout[key].height=Math.max(minH,orig.height+dy);
       applyWidget(key);
