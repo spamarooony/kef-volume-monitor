@@ -38,7 +38,7 @@ sudo systemctl enable --now kef-server.service
 
 ## Deploying updates
 
-The server runs this repo as a git clone (pulled read-only via a deploy key scoped to just this repo), so the repo is the source of truth rather than manual file copying. To ship a change:
+The server runs this repo as a git clone, so the repo is the source of truth rather than manual file copying. To ship a change:
 
 ```bash
 git commit -am "..." && git push

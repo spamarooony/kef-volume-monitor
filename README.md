@@ -13,7 +13,7 @@ This idea started with the occasional need to see the speaker's volume, without 
 
 ![Display page demo](media/display-demo.gif)
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for how it works, and [SETUP.md](SETUP.md) to run your own instance.
+See [FEATURES.md](FEATURES.md) for a full feature list, [ARCHITECTURE.md](ARCHITECTURE.md) for how it works, and [SETUP.md](SETUP.md) to run your own instance.
 
 ## Known Limitations
 
