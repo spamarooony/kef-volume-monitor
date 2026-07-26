@@ -112,10 +112,18 @@ def display():
 def manifest():
     return send_from_directory(APP_DIR, "manifest.json")
 
+def display_version():
+    try:
+        return os.path.getmtime(os.path.join(APP_DIR, "kef_display.html"))
+    except OSError:
+        return None
+
 @app.route("/volume")
 def get_volume():
     with cache_lock:
-        return jsonify(dict(cache))
+        data = dict(cache)
+    data["display_version"] = display_version()
+    return jsonify(data)
 
 @app.route("/volume/set", methods=["POST"])
 def set_volume():

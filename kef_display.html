@@ -359,6 +359,7 @@
   let panelOpen=false;
   let lastActivity=Date.now();
   let lastRenderedVolume=null;
+  let displayVersion=null; // mtime of this file on the server; a change means it was edited/deployed since we loaded
 
   function widgetEl(key){return key==="number"?widgetNumber:widgetBar;}
 
@@ -698,6 +699,10 @@
       lastRenderedVolume=vol100;
       setOnline(data.online);
       updateDisplay(vol100,data.muted,!data.online);
+      if(data.display_version!=null){
+        if(displayVersion!==null&&data.display_version!==displayVersion){ location.reload(); return; }
+        displayVersion=data.display_version;
+      }
     }catch(err){
       setOnline(false);
     }
