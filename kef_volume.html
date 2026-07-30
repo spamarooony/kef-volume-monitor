@@ -87,9 +87,13 @@
   .dot.offline{background:var(--red);box-shadow:0 0 6px var(--red)}
   .dot.loading{animation:pulse 1s ease-in-out infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
-  .mute-badge{display:none;font-size:10px;letter-spacing:0.18em;background:var(--border);
-    color:var(--muted);padding:3px 8px;border-radius:2px}
-  .mute-badge.visible{display:inline-block}
+  .mute-btn{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.15em;
+    background:none;border:1px solid var(--border);color:var(--muted);
+    padding:5px 10px;border-radius:4px;cursor:pointer;transition:border-color 0.2s,color 0.2s,background 0.2s}
+  .mute-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .mute-btn.active{border-color:var(--red);color:var(--red);background:rgba(192,57,43,0.12)}
+  .mute-btn:disabled{opacity:0.35;cursor:not-allowed;border-color:var(--border);color:var(--muted);background:none}
+  .mute-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .refresh-btn{background:none;border:1px solid var(--border);color:var(--muted);
     font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.15em;padding:5px 12px;
     cursor:pointer;border-radius:4px;transition:border-color 0.2s,color 0.2s}
@@ -199,7 +203,7 @@
   <div class="meta">
     <div><span class="dot loading" id="dot"></span><span id="statusText">CONNECTING…</span></div>
     <div class="meta-right">
-      <span class="mute-badge" id="muteBadge">MUTED</span>
+      <button class="mute-btn" id="muteBtn" onclick="toggleMute()" disabled aria-label="Toggle mute">MUTE</button>
       <button class="refresh-btn" onclick="fetchVolume()">↺ REFRESH</button>
       <button class="settings-btn" id="settingsBtn" aria-label="Settings">
         <!-- thin stroke outline, matching the visual weight of every other icon/border in this
@@ -255,7 +259,7 @@
   const volNum=document.getElementById("volNum");
   const dot=document.getElementById("dot");
   const statusTxt=document.getElementById("statusText");
-  const muteBadge=document.getElementById("muteBadge");
+  const muteBtn=document.getElementById("muteBtn");
   const lastUpd=document.getElementById("lastUpdated");
   const errorMsg=document.getElementById("errorMsg");
   const slider=document.getElementById("slider");
@@ -336,6 +340,7 @@
     btnDown.disabled=!online;
     btnUp.disabled=!online;
     unlockCheckbox.disabled=!online;
+    muteBtn.disabled=!online;
   }
 
   function sliderGradient(vol100,muted){
@@ -369,12 +374,40 @@
     slider.setAttribute("aria-valuenow",vol100);
     slider.setAttribute("aria-valuetext",vol100+(muted?"% (muted)":"%"));
     volNum.classList.toggle("stale",stale);
-    if(muted){
-      volNum.classList.add("muted");
-      muteBadge.classList.add("visible");
-    } else {
-      volNum.classList.remove("muted");
-      muteBadge.classList.remove("visible");
+    volNum.classList.toggle("muted",muted);
+    muteBtn.classList.toggle("active",muted);
+    muteBtn.textContent=muted?"MUTED":"MUTE";
+  }
+
+  async function toggleMute(){
+    if(!isOnline){
+      errorMsg.textContent="Speaker went offline, change not sent.";
+      errorMsg.classList.add("visible");
+      await fetchVolume(true);
+      return;
+    }
+    const newMuted=!volNum.classList.contains("muted");
+    committing=true;
+    updateUI(parseInt(volNum.textContent)||0,newMuted);
+    try{
+      const res=await fetch(`/mute/set`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({muted:newMuted}),
+        signal:AbortSignal.timeout(15000)
+      });
+      const data=await res.json();
+      if(!data.ok){
+        errorMsg.textContent="Failed to toggle mute. "+(data.error||"");
+        errorMsg.classList.add("visible");
+        await fetchVolume(true);
+      }
+    } catch(err){
+      errorMsg.textContent="Failed to toggle mute. ("+err.message+")";
+      errorMsg.classList.add("visible");
+      await fetchVolume(true);
+    } finally {
+      committing=false;
     }
   }
 

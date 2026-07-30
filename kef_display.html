@@ -68,14 +68,6 @@
   #widgetBar.vertical .bar-fill{left:0;right:0;top:auto;bottom:0;width:auto;height:0%;
     transition:height 0.3s ease,background 0.3s ease}
 
-  /* Fixed corner badge, not inline with the numeral - refreshNumberFont() sizes the numeral to
-     fill widgetNumber based on its own measured dimensions, so anything sharing that flex row
-     would throw off the fit-to-box math. Sized in % so it scales with the widget's own edit-mode
-     resize without any JS involvement. */
-  .mute-icon{position:absolute;left:3%;bottom:6%;width:9%;height:auto;color:var(--muted);
-    opacity:0;transition:opacity 0.3s;pointer-events:none}
-  .mute-icon.visible{opacity:1}
-
   .resize-handle{position:absolute;right:-8px;bottom:-8px;width:30px;height:30px;
     background:var(--accent);border-radius:50%;display:none;cursor:nwse-resize;
     border:3px solid var(--bg);touch-action:none}
@@ -243,10 +235,6 @@
 <div class="stage" id="stage">
   <div class="widget" id="widgetNumber">
     <svg class="vol-svg" id="volNumSvg"><text class="vol-display" id="volNum" x="0" y="0">--</text></svg>
-    <svg class="mute-icon" id="muteIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M11 5 6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
-    </svg>
     <div class="resize-handle" id="handleNumber"></div>
   </div>
   <div class="widget" id="widgetBar">
@@ -283,6 +271,10 @@
   <label class="safety-toggle" for="alwaysOnCheckbox">
     <input type="checkbox" id="alwaysOnCheckbox">
     <span>ALWAYS ON (DISABLE AUTO-DIM)</span>
+  </label>
+  <label class="safety-toggle" for="muteKeepsDisplayOnCheckbox">
+    <input type="checkbox" id="muteKeepsDisplayOnCheckbox">
+    <span>SPEAKER MUTE STATE KEEPS DISPLAY ON</span>
   </label>
   <div class="panel-row">
     <span class="panel-label">ACCENT COLOR</span>
@@ -331,7 +323,6 @@
   const stage=document.getElementById("stage");
   const chromeRow=document.getElementById("chromeRow");
   const volNum=document.getElementById("volNum");
-  const muteIcon=document.getElementById("muteIcon");
   const barFill=document.getElementById("barFill");
   const widgetNumber=document.getElementById("widgetNumber");
   const widgetBar=document.getElementById("widgetBar");
@@ -349,12 +340,14 @@
   const settingsBtn=document.getElementById("settingsBtn");
   const settingsPanel=document.getElementById("settingsPanel");
   const alwaysOnCheckbox=document.getElementById("alwaysOnCheckbox");
+  const muteKeepsDisplayOnCheckbox=document.getElementById("muteKeepsDisplayOnCheckbox");
   const editLayoutBtn=document.getElementById("editLayoutBtn");
   const applyChangesBtn=document.getElementById("applyChangesBtn");
   const resetLayoutBtn=document.getElementById("resetLayoutBtn");
   const iosHint=document.getElementById("iosHint");
 
-  let settings={timeoutSeconds:2,alwaysOn:false}; // 2s default, like a normal TV's volume OSD
+  let settings={timeoutSeconds:2,alwaysOn:false,muteKeepsDisplayOn:true}; // 2s default, like a normal TV's volume OSD
+  let lastMuted=null; // null until the first fetch resolves, so that first call can't be misread as a mute "change" and fire a spurious wake
   // layoutHome is the one authoritative source of truth for the arrangement - {layout, canvasSize}
   // at whatever canvas size it was last explicitly committed for (edited, reset, or loaded). layout
   // is the currently DISPLAYED numbers: always freshly derived from layoutHome for the current
@@ -624,6 +617,7 @@
         const parsed=JSON.parse(raw);
         if(typeof parsed.timeoutSeconds==="number") settings.timeoutSeconds=parsed.timeoutSeconds;
         settings.alwaysOn=!!parsed.alwaysOn;
+        if(typeof parsed.muteKeepsDisplayOn==="boolean") settings.muteKeepsDisplayOn=parsed.muteKeepsDisplayOn;
       }
     }catch(e){}
   }
@@ -651,6 +645,10 @@
 
   function checkDim(){
     if(settings.alwaysOn||editMode||panelOpen) return;
+    // Default behavior: stay lit for as long as the speaker is muted, not just a brief wake pulse -
+    // unchecking muteKeepsDisplayOn opts back into the old behavior (mute only resets the idle
+    // timer, same as any other state change, see fetchVolume() below).
+    if(lastMuted&&settings.muteKeepsDisplayOn) return;
     if(stage.classList.contains("dimmed")) return;
     if(Date.now()-lastActivity>settings.timeoutSeconds*1000){
       stage.classList.add("fade-out");
@@ -682,10 +680,13 @@
   }
 
   function updateDisplay(vol100,muted,stale){
-    volNum.textContent=vol100;
+    // Replaces the numeral outright rather than layering an icon over it - refreshNumberFont()
+    // already fits whatever text is actually in the box (see its own comment), so "MUTED" gets
+    // the same tight, properly-sized fit the numerals do, in the same space the user already
+    // positioned - no separate element that could end up obstructed independently.
+    volNum.textContent=muted?"MUTED":vol100;
     volNum.classList.toggle("muted",muted);
     volNum.classList.toggle("stale",stale);
-    muteIcon.classList.toggle("visible",muted);
     if(widgetBar.classList.contains("vertical")){
       barFill.style.height=vol100+"%";
       barFill.style.width="";
@@ -694,7 +695,7 @@
       barFill.style.height="";
     }
     barFill.classList.toggle("muted",muted);
-    refreshNumberFont(); // digit count changes (e.g. 9 -> 10) shift the width-based cap in refreshNumberFont
+    refreshNumberFont(); // text length changes (digit count, or swapping to "MUTED") shift the width-based cap in refreshNumberFont
   }
 
   async function fetchVolume(){
@@ -703,7 +704,15 @@
       const data=await res.json();
       const vol100=Math.round(data.volume*100);
       if(lastRenderedVolume!==null&&vol100!==lastRenderedVolume) wake(false); // a genuine volume change wakes the numbers/bar, not the chrome buttons
+      // A mute toggle (either direction) always gets the same wake pulse a volume change gets, so
+      // muting an already-dimmed display actually turns it back on instead of silently staying dark.
+      // muteKeepsDisplayOn doesn't affect this pulse - it only controls what checkDim() does
+      // afterward: with it on (the default) checkDim() keeps holding the display lit for as long as
+      // data.muted stays true; with it off, this pulse is the only wake it gets, same as a volume
+      // change, and it dims again on the normal timeout.
+      if(lastMuted!==null&&data.muted!==lastMuted) wake(false);
       lastRenderedVolume=vol100;
+      lastMuted=data.muted;
       setOnline(data.online);
       updateDisplay(vol100,data.muted,!data.online);
       if(data.display_version!=null){
@@ -808,6 +817,11 @@
     if(settings.alwaysOn) wake();
     saveSettings();
     updatePresetActiveState(); // re-evaluate the presets' disabled state
+  });
+
+  muteKeepsDisplayOnCheckbox.addEventListener("change",()=>{
+    settings.muteKeepsDisplayOn=muteKeepsDisplayOnCheckbox.checked;
+    saveSettings();
   });
 
   // Editing takes over the whole screen instead of living inside the settings panel - there's no
@@ -1065,6 +1079,7 @@
   loadSettings();
   updatePresetActiveState();
   alwaysOnCheckbox.checked=settings.alwaysOn;
+  muteKeepsDisplayOnCheckbox.checked=settings.muteKeepsDisplayOn;
 
   // Deferred one frame so the CSS percentage bootstrap has actually rendered before we read
   // geometry from it (offsetWidth/Height are 0 if read before the viewport is truly established -

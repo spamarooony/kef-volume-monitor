@@ -144,6 +144,27 @@ def set_volume():
             cache.update({"online": False, "error": str(e)})
         return jsonify({"ok": False, "error": str(e)}), 502
 
+@app.route("/mute/set", methods=["POST"])
+def set_mute():
+    with cache_lock:
+        if not cache["online"]:
+            return jsonify({"ok": False, "error": "Speaker offline"}), 503
+        vol = int(round(cache["volume"] * 100))
+    try:
+        data = request.get_json()
+        muted = bool(data.get("muted", False))
+        # Same SET command as volume - add 128 to the current volume byte to mute, plain
+        # volume byte to unmute (protocol confirmed against aiokef's mute()/unmute()).
+        tcp_call(speaker_ip, set_volume_cmd(vol + 128 if muted else vol))
+        with cache_lock:
+            cache.update({"muted": muted, "online": True})
+        save_state(cache["volume"], muted)
+        return jsonify({"ok": True, "muted": muted})
+    except Exception as e:
+        with cache_lock:
+            cache.update({"online": False, "error": str(e)})
+        return jsonify({"ok": False, "error": str(e)}), 502
+
 @app.route("/status")
 def get_status():
     return jsonify({"server": "ok", "speaker_ip": speaker_ip})
