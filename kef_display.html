@@ -48,7 +48,6 @@
   .vol-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
   .vol-display{font-family:'Bebas Neue',sans-serif;fill:var(--accent);
     letter-spacing:-0.02em;transition:fill 0.3s}
-  .vol-display.muted{fill:var(--muted)}
   .vol-display.stale{opacity:0.4}
 
   /* border-radius here is a deliberately oversized px value, not 10px and not 50% - the browser
@@ -61,7 +60,6 @@
     border-radius:999px;overflow:hidden;position:relative}
   .bar-fill{position:absolute;left:0;top:0;bottom:0;width:0%;background:var(--accent);
     transition:width 0.3s ease,background 0.3s ease}
-  .bar-fill.muted{background:var(--muted)}
   /* Vertical mode fills bottom-to-top instead of left-to-right, like a level meter - top:auto
      un-pins the edge width/height animates from base's top:0/bottom:0, so only one axis is ever
      the animated one at a time (see updateDisplay(), which writes height instead of width here). */
@@ -685,7 +683,6 @@
     // the same tight, properly-sized fit the numerals do, in the same space the user already
     // positioned - no separate element that could end up obstructed independently.
     volNum.textContent=muted?"MUTED":vol100;
-    volNum.classList.toggle("muted",muted);
     volNum.classList.toggle("stale",stale);
     if(widgetBar.classList.contains("vertical")){
       barFill.style.height=vol100+"%";
@@ -694,7 +691,6 @@
       barFill.style.width=vol100+"%";
       barFill.style.height="";
     }
-    barFill.classList.toggle("muted",muted);
     refreshNumberFont(); // text length changes (digit count, or swapping to "MUTED") shift the width-based cap in refreshNumberFont
   }
 

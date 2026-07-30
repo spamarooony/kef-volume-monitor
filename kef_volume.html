@@ -44,7 +44,6 @@
   .vol-wrap{display:flex;align-items:baseline;gap:10px;margin-bottom:22px}
   .vol-number{font-family:'Bebas Neue',sans-serif;font-size:clamp(80px,22vw,120px);
     line-height:1;color:var(--accent);letter-spacing:-0.02em;transition:color 0.3s}
-  .vol-number.muted{color:var(--muted)}
   .vol-number.stale{opacity:0.4}
   .vol-unit{font-size:13px;color:var(--muted);letter-spacing:0.15em;padding-bottom:14px}
   .slider-wrap{display:flex;align-items:center;gap:12px;margin-bottom:12px}
@@ -343,12 +342,13 @@
     muteBtn.disabled=!online;
   }
 
-  function sliderGradient(vol100,muted){
+  function sliderGradient(vol100){
     // The danger-zone backdrop is drawn once by .slider-track's own static background and never
     // moves. The fill just needs to (a) go transparent past the current value, so that backdrop
     // shows through unchanged ahead of the thumb, and (b) switch from blue to red once the fill
     // itself has crossed SAFE_MAX, so already-filled track reflects "you're in the danger zone"
-    // instead of staying blue right up to the thumb.
+    // instead of staying blue right up to the thumb. Colors stay accent/red regardless of mute
+    // state - the MUTE button and numeral text already say so, color doesn't need to repeat it.
     const v=Math.max(0,Math.min(maxVol,vol100));
     const boxWidth=slider.offsetWidth;
     // Same inset-corrected mapping the native thumb uses (see applyMaxVol) - maxVol cancels out
@@ -358,16 +358,14 @@
     const toPct=val=>(maxVol>0&&boxWidth>THUMB_PX)?((THUMB_PX/2+(val/maxVol)*(boxWidth-THUMB_PX))/boxWidth*100):0;
     const pct=toPct(v);
     const safePct=Math.min(pct,toPct(Math.min(SAFE_MAX,maxVol)));
-    const safeColor=muted?"var(--muted)":"var(--accent)";
-    const dangerColor=muted?"var(--muted)":"var(--red)";
-    return `linear-gradient(to right,${safeColor} 0%,${safeColor} ${safePct}%,`+
-      `${dangerColor} ${safePct}%,${dangerColor} ${pct}%,transparent ${pct}%,transparent 100%)`;
+    return `linear-gradient(to right,var(--accent) 0%,var(--accent) ${safePct}%,`+
+      `var(--red) ${safePct}%,var(--red) ${pct}%,transparent ${pct}%,transparent 100%)`;
   }
 
   function updateUI(vol100,muted,stale=false){
     volNum.textContent=vol100;
     if(!dragging) slider.value=vol100;
-    slider.style.background=sliderGradient(vol100,muted);
+    slider.style.background=sliderGradient(vol100);
     // aria-value* stay pinned to the true 0-100 scale regardless of the native min/max, which
     // get resized by applyMaxVol() for drag-blocking - without this a screen reader would announce
     // e.g. "32, maximum 45" instead of the real 32%.
@@ -555,7 +553,7 @@
     hexInput.classList.remove("invalid");
     // the fill gradient is generated JS-side (see sliderGradient) rather than pure CSS, so it needs
     // an explicit re-render to pick up the new --accent instead of updating on its own
-    if(!dragging) slider.style.background=sliderGradient(parseInt(volNum.textContent)||0,volNum.classList.contains("muted"));
+    if(!dragging) slider.style.background=sliderGradient(parseInt(volNum.textContent)||0);
   }
   document.querySelectorAll(".swatch").forEach(btn=>{
     btn.addEventListener("click",()=>{
