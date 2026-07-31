@@ -12,6 +12,7 @@ A detailed inventory of what this project actually does, grouped by component. F
 - **REST endpoints**:
   - `GET /volume` - cached volume/mute/online state, plus `display_version` (display page's file mtime, for client auto-reload)
   - `POST /volume/set` - sends a volume change straight to the speaker synchronously (not gated by the poll loop), rejects if the speaker is offline
+  - `POST /mute/set` - sends a mute/unmute command straight to the speaker synchronously, rejects if the speaker is offline
   - `GET /status` - basic server/speaker-IP health check
   - `GET /`, `GET /display`, `GET /manifest.json` - serves the HTML pages and PWA manifest from the same origin (avoids CORS/`file://` issues)
 - **CORS enabled** (`flask-cors`) for cross-origin access if needed.
@@ -25,7 +26,7 @@ A detailed inventory of what this project actually does, grouped by component. F
 - **Direct control**: +/− step buttons (1% per press) and a draggable slider, posting changes to `/volume/set`.
 - **Debounced commits**: rapid slider drags are queued and coalesced rather than firing a request per pixel of movement.
 - **Safety ceiling with unlock**: volume is capped at a safe 45% by default; a toggle unlocks the full 0-100 range, and re-locking clamps any louder-than-safe volume back down immediately.
-- **Mute indication**: reflects the speaker's mute state visually (distinct from volume being at 0).
+- **Mute toggle**: a clickable MUTE button posts to `/mute/set`; the numeral, bar fill, and slider keep whatever accent color is picked rather than graying out, so mute state is communicated by the button label alone (distinct from volume being at 0).
 - **Offline/stale handling**: controls disable and the readout dims when the speaker is unreachable or the last update is stale, instead of silently showing wrong data.
 - **Accent color theming**: six preset swatches plus a custom hex input, persisted in `localStorage` and re-applied on load.
 - **Accessible controls**: ARIA labels/roles on the slider and buttons (`role`, `aria-valuemin/max/now/text`, `aria-label`) for screen-reader use.
@@ -34,6 +35,7 @@ A detailed inventory of what this project actually does, grouped by component. F
 
 - **TV-OSD-style readout**: shows current volume large enough to read from across a room, styled like a TV's native volume overlay.
 - **Idle fade-to-black**: fades out after a configurable timeout (2s/5s/10s/30s presets, matching a normal TV's OSD) or can be set to always-on; wakes instantly on tap or on a genuine server-driven volume change.
+- **MUTED readout**: the numeral swaps to show "MUTED" while the speaker is muted, keeping the picked accent color (on the numeral and bar fill) rather than graying out. A mute change wakes the display the same as a volume change, and by default staying muted keeps the display lit past the idle timeout instead of just triggering a brief wake pulse; a "SPEAKER MUTE STATE KEEPS DISPLAY ON" toggle in settings opts back into the brief-wake-only behavior.
 - **Drag-and-resize layout editor**: an edit mode where the volume numeral and bar widgets can be freely dragged and resized; layout persists across reloads (`localStorage`) and rescales as a group when the viewport or rotation changes.
 - **Bar widget orientation toggle**: the volume bar can be rotated between horizontal and vertical independent of the numeral.
 - **Bar widget remove/restore**: the volume bar can be hidden (shown as a ghost placeholder in edit mode) and brought back without losing its saved position/size.
